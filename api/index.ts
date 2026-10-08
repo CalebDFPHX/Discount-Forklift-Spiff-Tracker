@@ -1,4 +1,4 @@
-import { app, ensureInitialAdminFromEnv } from '../src/server/app';
+import { app, ensureInitialAdminFromEnv } from '../src/server/app.js';
 
 let isInitialized = false;
 
