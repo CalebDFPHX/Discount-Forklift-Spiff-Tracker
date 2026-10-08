@@ -10,25 +10,25 @@ import {
   generateUploadToken,
   MAX_FILE_SIZE_BYTES,
   isBlobConfigured,
-} from '../lib/blob';
+} from '../lib/blob.js';
 import {
   createSessionToken,
   verifySessionToken,
   createCsrfToken,
   verifyCsrfToken,
   verifyAdminPermissions,
-} from '../lib/sessionAuth';
+} from '../lib/sessionAuth.js';
 import {
   createAdminAuthToken,
   verifyAdminAuthToken,
   consumeAdminAuthToken,
-} from '../lib/authTokens';
-import { validatePasswordStrength, verifyPassword } from '../lib/auth';
-import { createPersistentRateLimiter } from '../lib/rateLimiter';
-import { isNeonConfigured } from '../db/index';
-import { isResendConfigured, sendRenderedEmail } from '../lib/resend';
-import { formatDollars } from '../lib/formatters';
-import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone';
+} from '../lib/authTokens.js';
+import { validatePasswordStrength, verifyPassword } from '../lib/auth.js';
+import { createPersistentRateLimiter } from '../lib/rateLimiter.js';
+import { isNeonConfigured } from '../db/index.js';
+import { isResendConfigured, sendRenderedEmail } from '../lib/resend.js';
+import { formatDollars } from '../lib/formatters.js';
+import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
