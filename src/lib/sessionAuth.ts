@@ -6,9 +6,9 @@
  */
 
 import crypto from 'crypto';
-import { db, schema, isNeonConfigured } from '../db/index';
+import { db, schema, isNeonConfigured } from '../db/index.js';
 import { eq } from 'drizzle-orm';
-import { memoryStore, isMemoryModeAllowed } from './repository';
+import { memoryStore, isMemoryModeAllowed } from './repository.js';
 
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
