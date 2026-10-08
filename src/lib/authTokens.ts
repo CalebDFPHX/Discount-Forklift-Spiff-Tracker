@@ -9,10 +9,10 @@
  */
 
 import crypto from 'crypto';
-import { db, schema, isNeonConfigured } from '../db/index';
+import { db, schema, isNeonConfigured } from '../db/index.js';
 import { eq, and, sql } from 'drizzle-orm';
-import { memoryStore, AdminUser, isMemoryModeAllowed } from './repository';
-import { hashPassword, validatePasswordStrength } from './auth';
+import { memoryStore, AdminUser, isMemoryModeAllowed } from './repository.js';
+import { hashPassword, validatePasswordStrength } from './auth.js';
 
 export interface AdminAuthTokenRecord {
   id: string;
