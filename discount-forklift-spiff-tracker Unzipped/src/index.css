@@ -1,0 +1,101 @@
+@import "tailwindcss";
+
+@theme {
+  --color-df-dark: #242424;
+  --color-df-surface: #2d2d2d;
+  --color-df-surface-card: #333333;
+  --color-df-surface-muted: #1e1e1e;
+  --color-df-border: #444444;
+  --color-df-border-light: #525252;
+  --color-df-purple: #A559BD;
+  --color-df-purple-hover: #934da9;
+  --color-df-purple-active: #7e3895;
+  --color-df-green: #95EA00;
+  --color-df-green-hover: #83cc00;
+  --color-df-green-muted: rgba(149, 234, 0, 0.15);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #242424;
+  color: #f3f4f6;
+  min-height: 100vh;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Custom scrollbars for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+::-webkit-scrollbar-thumb {
+  background: #444444;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #555555;
+}
+
+/* Reusable theme helper classes */
+.df-bg-page {
+  background-color: #242424;
+}
+
+.df-surface-card {
+  background-color: #2d2d2d;
+  border-color: #444444;
+}
+
+.df-surface-elevated {
+  background-color: #333333;
+  border-color: #4d4d4d;
+}
+
+.df-input {
+  background-color: #1e1e1e;
+  border: 1px solid #444444;
+  color: #f3f4f6;
+}
+
+.df-input:focus {
+  outline: none;
+  border-color: #95EA00;
+  box-shadow: 0 0 0 2px rgba(149, 234, 0, 0.25);
+}
+
+.btn-df-purple {
+  background-color: #A559BD;
+  color: #ffffff;
+  font-weight: 600;
+  transition: all 150ms ease;
+}
+.btn-df-purple:hover:not(:disabled) {
+  background-color: #934da9;
+}
+.btn-df-purple:active:not(:disabled) {
+  background-color: #7e3895;
+}
+.btn-df-purple:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-df-approve {
+  background-color: #95EA00;
+  color: #121212;
+  font-weight: 700;
+  transition: all 150ms ease;
+}
+.btn-df-approve:hover:not(:disabled) {
+  background-color: #83cc00;
+}
+.btn-df-approve:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
