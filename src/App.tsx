@@ -1,21 +1,21 @@
-import React, { useState, useEffect } from 'react';
-import { Header } from './components/Header';
-import { RepSubmissionForm } from './components/RepSubmissionForm';
-import { SubmissionSuccessModal } from './components/SubmissionSuccessModal';
-import { AdminLoginModal } from './components/AdminLoginModal';
-import { PasswordChangeModal } from './components/PasswordChangeModal';
-import { AdminLedger } from './components/AdminLedger';
-import { AdminSpiffManager } from './components/AdminSpiffManager';
-import { AdminRepManager } from './components/AdminRepManager';
-import { AdminContactsManager } from './components/AdminContactsManager';
-import { AdminBranchManager } from './components/AdminBranchManager';
-import { AdminSettings } from './components/AdminSettings';
-import { AdminRequestDetailModal } from './components/AdminRequestDetailModal';
-import { DecisionConfirmModal } from './components/DecisionConfirmModal';
-import { PhotoPreviewModal } from './components/PhotoPreviewModal';
-import { SpiffSubmission, SalesRep, Spiff, Attachment, NotificationContact, Branch } from './lib/repository';
-import { adminFetch, setAdminSession, clearAdminSession, getAdminSession } from './lib/api';
-import { FileText, Award, Users, Settings as SettingsIcon, Contact, Sparkles, Building2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react.js';
+import { Header } from './components/Header.js';
+import { RepSubmissionForm } from './components/RepSubmissionForm.js';
+import { SubmissionSuccessModal } from './components/SubmissionSuccessModal.js';
+import { AdminLoginModal } from './components/AdminLoginModal.js';
+import { PasswordChangeModal } from './components/PasswordChangeModal.js';
+import { AdminLedger } from './components/AdminLedger.js';
+import { AdminSpiffManager } from './components/AdminSpiffManager.js';
+import { AdminRepManager } from './components/AdminRepManager.js';
+import { AdminContactsManager } from './components/AdminContactsManager.js';
+import { AdminBranchManager } from './components/AdminBranchManager.js';
+import { AdminSettings } from './components/AdminSettings.js';
+import { AdminRequestDetailModal } from './components/AdminRequestDetailModal.js';
+import { DecisionConfirmModal } from './components/DecisionConfirmModal.js';
+import { PhotoPreviewModal } from './components/PhotoPreviewModal.js';
+import { SpiffSubmission, SalesRep, Spiff, Attachment, NotificationContact, Branch } from '../lib/repository.js'
+import { adminFetch, setAdminSession, clearAdminSession, getAdminSession } from './lib/api.js';
+import { FileText, Award, Users, Settings as SettingsIcon, Contact, Sparkles, Building2 } from 'lucide-react.js';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'rep' | 'admin'>('rep');
