@@ -1,4 +1,4 @@
-import { db, schema, isNeonConfigured } from '../db/index';
+import { db, schema, isNeonConfigured } from '../db/index.js';
 import { eq, desc, asc, and, gte, lte, lt, like, or, sql, isNull } from 'drizzle-orm';
 import { sendSpiffSubmissionEmail, sendSpiffDecisionResultEmail, sendRenderedEmail } from './resend';
 import { formatDollars, validateSerialSuffix } from './formatters';
