@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react.js';
+import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header.js';
 import { RepSubmissionForm } from './components/RepSubmissionForm.js';
 import { SubmissionSuccessModal } from './components/SubmissionSuccessModal.js';
