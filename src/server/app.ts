@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { Repository } from '../lib/repository';
+import { Repository } from '../lib/repository.js';
 import {
   validateImageMagicBytes,
   uploadPrivatePhoto,
