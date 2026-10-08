@@ -6,7 +6,7 @@
  */
 
 import express from 'express';
-import { db, schema, isNeonConfigured } from '../db/index';
+import { db, schema, isNeonConfigured } from '../db/index.js';
 import { eq, sql } from 'drizzle-orm';
 
 export function getClientIp(req: express.Request): string {
