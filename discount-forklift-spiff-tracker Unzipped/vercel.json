@@ -4,7 +4,7 @@
   "crons": [
     {
       "path": "/api/cron/retry-notifications",
-      "schedule": "*/10 * * * *"
+      "schedule": "0 4 * * *"
     },
     {
       "path": "/api/cron/cleanup-uploads",
