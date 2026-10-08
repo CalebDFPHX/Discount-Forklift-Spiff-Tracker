@@ -4,7 +4,7 @@
  * versioning, and conditional rendering (admin review vs sales rep view).
  */
 
-import { sanitizeEmailHtml, isSafeUrl } from './sanitizer';
+import { sanitizeEmailHtml, isSafeUrl } from './sanitizer.js';
 
 export interface EmailTemplate {
   id: string; // 'new_submission' | 'spiff_approved' | 'spiff_denied'
