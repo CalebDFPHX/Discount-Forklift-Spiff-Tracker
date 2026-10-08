@@ -15,7 +15,7 @@ import { DecisionConfirmModal } from './components/DecisionConfirmModal.js';
 import { PhotoPreviewModal } from './components/PhotoPreviewModal.js';
 import { SpiffSubmission, SalesRep, Spiff, Attachment, NotificationContact, Branch } from '../lib/repository.js'
 import { adminFetch, setAdminSession, clearAdminSession, getAdminSession } from './lib/api.js';
-import { FileText, Award, Users, Settings as SettingsIcon, Contact, Sparkles, Building2 } from 'lucide-react.js';
+import { FileText, Award, Users, Settings as SettingsIcon, Contact, Sparkles, Building2 } from 'lucide-react';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'rep' | 'admin'>('rep');
