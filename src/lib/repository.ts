@@ -13,7 +13,7 @@ import {
   SAMPLE_TEMPLATE_DATA,
   validateTemplateContent,
   renderEmailTemplate,
-} from './emailTemplates';
+} from './emailTemplates.js';
 
 export type { EmailTemplate, EmailTemplateVersion };
 
