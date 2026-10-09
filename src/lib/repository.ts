@@ -3485,40 +3485,7 @@ export const Repository = {
     user.updatedAt = now;
     return true;
   },
-    const strength = validatePasswordStrength(newPassword);
-    if (!strength.isValid) {
-      throw new Error(strength.error || 'Password does not meet security requirements.');
-    }
-    const newHash = hashPassword(newPassword);
-    const now = new Date().toISOString();
-
-    if (this.isLiveDatabaseConnected() && db) {
-      try {
-        await db
-          .update(schema.adminUsers)
-          .set({
-            passwordHash: newHash,
-            mustChangePassword: false,
-            passwordChangedAt: new Date(),
-            updatedAt: new Date(),
-          })
-          .where(eq(schema.adminUsers.id, id)) .returning({ id: schema.adminUsers.id });  if (updated.length === 0) {   throw new Error('Administrator user not found.'); } return true;
-      } catch (err) {
-        console.warn('Neon update error for admin password:', err);
-      }
-    }
-
-    const user = memoryStore.adminUsers.find((u) => u.id === id);
-    if (user) {
-      user.passwordHash = newHash;
-      user.mustChangePassword = false;
-      user.passwordChangedAt = now;
-      user.updatedAt = now;
-      return true;
-    }
-    throw new Error('Administrator user not found.');
-  },
-
+  
   async seedOrUpdateInitialAdmin(input: {
     email: string;
     name?: string;
