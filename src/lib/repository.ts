@@ -3334,8 +3334,11 @@ export const Repository = {
             updatedAt: row.updatedAt ? row.updatedAt.toISOString() : row.createdAt.toISOString(),
           };
         }
-      } catch (err) {
-        console.warn('Neon query error for admin auth, checking memory store:', err);
+     } catch (err) {
+  console.error('Neon update error for admin password:', err);
+  throw err;
+}
+}
       }
     }
 
@@ -3460,7 +3463,7 @@ export const Repository = {
             passwordChangedAt: new Date(),
             updatedAt: new Date(),
           })
-          .where(eq(schema.adminUsers.id, id));
+          .where(eq(schema.adminUsers.id, id)) .returning({ id: schema.adminUsers.id });  if (updated.length === 0) {   throw new Error('Administrator user not found.'); } return true;
       } catch (err) {
         console.warn('Neon update error for admin password:', err);
       }
@@ -3614,13 +3617,19 @@ export const Repository = {
     const now = new Date().toISOString();
     if (this.isLiveDatabaseConnected() && db) {
       try {
-        await db
+       const updated = await db
           .update(schema.adminUsers)
           .set({
             isAuthorized,
             updatedAt: new Date(),
           })
-          .where(eq(schema.adminUsers.id, id));
+         .where(eq(schema.adminUsers.id, id))
+.returning({ id: schema.adminUsers.id });
+
+if (updated.length === 0) {
+  throw new Error('Administrator user not found.');
+}
+return true;
       } catch (err) {
         console.warn('Neon update error for admin status:', err);
       }
