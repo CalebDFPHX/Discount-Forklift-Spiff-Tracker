@@ -1268,6 +1268,7 @@ export const Repository = {
           }
         }
 
+        await tx.insert(schema.spiffSubmissions).values({
         // Link photo attachment atomically and verify single claim
         const [linkedAtt] = await tx
           .update(schema.attachments)
@@ -1282,7 +1283,7 @@ export const Repository = {
           throw new Error('Please attach an authentic, unlinked sale photo before submitting your spiff request.');
         }
 
-        await tx.insert(schema.spiffSubmissions).values({
+        
           id: newSubmission.id,
           idempotencyKey: newSubmission.idempotencyKey,
           repId: newSubmission.repId,
