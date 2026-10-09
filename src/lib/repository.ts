@@ -3334,11 +3334,9 @@ export const Repository = {
             updatedAt: row.updatedAt ? row.updatedAt.toISOString() : row.createdAt.toISOString(),
           };
         }
-     } catch (err) {
-  console.error('Neon update error for admin password:', err);
-  throw err;
-}
-}
+      } catch (err) {
+        console.error('Neon query error for admin auth:', err);
+        throw err;
       }
     }
 
@@ -3445,7 +3443,48 @@ export const Repository = {
     return safeUser;
   },
 
-  async updateAdminPassword(id: string, newPassword: string): Promise<boolean> {
+   async updateAdminPassword(id: string, newPassword: string): Promise<boolean> {
+    const strength = validatePasswordStrength(newPassword);
+    if (!strength.isValid) {
+      throw new Error(
+        strength.error || 'Password does not meet security requirements.'
+      );
+    }
+
+    const newHash = hashPassword(newPassword);
+    const now = new Date().toISOString();
+
+    if (this.isLiveDatabaseConnected() && db) {
+      const updated = await db
+        .update(schema.adminUsers)
+        .set({
+          passwordHash: newHash,
+          mustChangePassword: false,
+          passwordChangedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.adminUsers.id, id))
+        .returning({ id: schema.adminUsers.id });
+
+      if (updated.length === 0) {
+        throw new Error('Administrator user not found.');
+      }
+      return true;
+    }
+
+    this.assertDatabaseOrMemoryAllowed();
+
+    const user = memoryStore.adminUsers.find((u) => u.id === id);
+    if (!user) {
+      throw new Error('Administrator user not found.');
+    }
+
+    user.passwordHash = newHash;
+    user.mustChangePassword = false;
+    user.passwordChangedAt = now;
+    user.updatedAt = now;
+    return true;
+  },
     const strength = validatePasswordStrength(newPassword);
     if (!strength.isValid) {
       throw new Error(strength.error || 'Password does not meet security requirements.');
