@@ -1263,27 +1263,14 @@ export const Repository = {
             .from(schema.spiffSubmissions)
             .where(eq(schema.spiffSubmissions.idempotencyKey, input.idempotencyKey))
             .limit(1);
+
           if (existing.length > 0) {
             throw new Error(`Duplicate submission detected (Idempotency Key: ${input.idempotencyKey})`);
           }
         }
 
+        // Create the submission before linking its photo
         await tx.insert(schema.spiffSubmissions).values({
-        // Link photo attachment atomically and verify single claim
-        const [linkedAtt] = await tx
-          .update(schema.attachments)
-          .set({
-            submissionId: newSubmission.id,
-            uploadStatus: 'linked',
-          })
-          .where(and(eq(schema.attachments.id, attachedObj.id), eq(schema.attachments.uploadStatus, 'pending')))
-          .returning();
-
-        if (!linkedAtt) {
-          throw new Error('Please attach an authentic, unlinked sale photo before submitting your spiff request.');
-        }
-
-        
           id: newSubmission.id,
           idempotencyKey: newSubmission.idempotencyKey,
           repId: newSubmission.repId,
@@ -1301,6 +1288,25 @@ export const Repository = {
           isPotentialDuplicate: newSubmission.isPotentialDuplicate,
           duplicateReason: newSubmission.duplicateReason,
         });
+
+        // Link photo attachment atomically and verify single claim
+        const [linkedAtt] = await tx
+          .update(schema.attachments)
+          .set({
+            submissionId: newSubmission.id,
+            uploadStatus: 'linked',
+          })
+          .where(
+            and(
+              eq(schema.attachments.id, attachedObj.id),
+              eq(schema.attachments.uploadStatus, 'pending')
+            )
+          )
+          .returning();
+
+        if (!linkedAtt) {
+          throw new Error('Please attach an authentic, unlinked sale photo before submitting your spiff request.');
+        }
 
         // Insert notification job in the same transaction
         await tx.insert(schema.emailNotificationJobs).values({
