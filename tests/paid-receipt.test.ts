@@ -128,6 +128,66 @@ describe('approved paid receipt notifications', () => {
     const receipts = await Repository.getPaidReceiptNotificationResults(submissionId);
     assert.equal(receipts.length, 2);
     assert.ok(receipts.every((receipt) => receipt.status === 'accepted'));
+
+    const jobs = await Repository.getEmailJobs();
+    const approvalJob = jobs.find(
+      (job) => job.recipientEmail === 'sales.rep@example.test'
+    );
+    const paidReceiptJob = jobs.find(
+      (job) => job.recipientEmail === 'gm.one@example.test'
+    );
+    assert.equal(approvalJob?.templateId, 'spiff_approved');
+    assert.equal(approvalJob?.templateVersion, 1);
+    assert.equal(paidReceiptJob?.templateId, 'spiff_approved_paid_receipt');
+    assert.equal(paidReceiptJob?.templateVersion, 1);
+
+    const currentTemplate = memoryStore.emailTemplates.find(
+      (template) => template.id === 'spiff_approved_paid_receipt'
+    );
+    assert.ok(currentTemplate);
+    const currentVersion = currentTemplate.version;
+    currentTemplate.version++;
+    try {
+      const refreshedJobs = await Repository.getEmailJobs();
+      assert.equal(
+        refreshedJobs.find((job) => job.id === paidReceiptJob.id)?.templateVersion,
+        paidReceiptJob.templateVersion
+      );
+    } finally {
+      currentTemplate.version = currentVersion;
+    }
+  });
+
+  it('returns saved template identity and does not mutate statuses when reading the log', async () => {
+    await Repository.decideSubmission(
+      submissionId,
+      'admin@example.test',
+      { decision: 'approve', recipients: [], appUrl: APP_URL },
+      successfulMock
+    );
+    const existingReceipt = memoryStore.emailJobs.find(
+      (job) => job.templateId === 'spiff_approved_paid_receipt'
+    );
+    assert.ok(existingReceipt);
+
+    const legacyJob = {
+      ...existingReceipt,
+      id: 'job_legacy_without_template',
+      recipientEmail: 'dallas.manager@discountforkliftphoenix.com',
+      status: 'queued' as const,
+      templateId: null,
+      templateVersion: null,
+    };
+    memoryStore.emailJobs.push(legacyJob);
+
+    const jobs = await Repository.getEmailJobs();
+    const loadedLegacyJob = jobs.find((job) => job.id === legacyJob.id);
+    const loadedReceipt = jobs.find((job) => job.id === existingReceipt.id);
+    assert.equal(loadedLegacyJob?.templateId, null);
+    assert.equal(loadedLegacyJob?.templateVersion, null);
+    assert.equal(loadedLegacyJob?.status, 'queued');
+    assert.equal(loadedReceipt?.templateId, 'spiff_approved_paid_receipt');
+    assert.equal(loadedReceipt?.templateVersion, existingReceipt.templateVersion);
   });
 
   it('keeps the approval when Gmail-style delivery fails and prevents resend after acceptance', async () => {

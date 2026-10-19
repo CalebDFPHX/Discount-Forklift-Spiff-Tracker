@@ -2643,7 +2643,6 @@ export const Repository = {
   },
 
   async getEmailJobs(): Promise<EmailJob[]> {
-    await this.suppressBlockedNotificationJobs();
     if (this.isLiveDatabaseConnected() && db) {
       try {
         const rows = await db

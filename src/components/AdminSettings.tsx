@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronsUpDown,
   ExternalLink,
+  ChevronRight,
 } from 'lucide-react';
 import { EmailJob } from '../lib/repository';
 import { formatPhoenixDateTime } from '../lib/timezone';
@@ -35,6 +36,31 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  const [templateFilter, setTemplateFilter] = useState('all');
+  const [expandedJobIds, setExpandedJobIds] = useState<Record<string, boolean>>({});
+
+  const templateNames: Record<string, string> = {
+    new_submission: 'New Spiff Submission',
+    spiff_approved: 'Spiff Approved',
+    spiff_denied: 'Spiff Denied',
+    spiff_approved_paid_receipt: 'Spiff Approved Paid Receipt',
+  };
+
+  const getSavedTemplateLabel = (job: EmailJob) => {
+    if (!job.templateId || typeof job.templateVersion !== 'number') {
+      return 'Unknown / Legacy';
+    }
+    const name = templateNames[job.templateId];
+    return name ? `${name} — v${job.templateVersion}` : 'Unknown / Legacy';
+  };
+
+  const visibleEmailJobs = emailJobs.filter((job) => {
+    if (templateFilter === 'all') return true;
+    if (templateFilter === 'unknown') {
+      return getSavedTemplateLabel(job) === 'Unknown / Legacy';
+    }
+    return job.templateId === templateFilter && typeof job.templateVersion === 'number';
+  });
 
   // Collapsible sections state
   // Default: sections open for immediate access, fully collapsible on demand
@@ -600,9 +626,35 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
               Persistent jobs created during spiff submission transactions. Failed dispatches can be retried without duplicate submissions.
             </p>
 
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <label htmlFor="email-job-template-filter" className="text-xs font-semibold text-gray-300">
+                Filter by template
+              </label>
+              <select
+                id="email-job-template-filter"
+                value={templateFilter}
+                onChange={(event) => setTemplateFilter(event.target.value)}
+                className="rounded border border-[#444444] bg-[#1e1e1e] px-3 py-2 text-xs text-white focus:border-[#95EA00] focus:outline-none"
+              >
+                <option value="all">All templates</option>
+                <option value="new_submission">New Spiff Submission</option>
+                <option value="spiff_approved">Spiff Approved</option>
+                <option value="spiff_denied">Spiff Denied</option>
+                <option value="spiff_approved_paid_receipt">Spiff Approved Paid Receipt</option>
+                <option value="unknown">Unknown / Legacy</option>
+              </select>
+              <span className="text-[11px] text-gray-500">
+                Showing {visibleEmailJobs.length} of {emailJobs.length} jobs
+              </span>
+            </div>
+
             {emailJobs.length === 0 ? (
               <div className="p-8 text-center text-gray-400 text-xs bg-[#1e1e1e] rounded-lg border border-dashed border-[#444444]">
                 No notification jobs recorded yet. Submit a spiff from the rep form to generate a notification job.
+              </div>
+            ) : visibleEmailJobs.length === 0 ? (
+              <div className="p-8 text-center text-gray-400 text-xs bg-[#1e1e1e] rounded-lg border border-dashed border-[#444444]">
+                No notification jobs match this template.
               </div>
             ) : (
               <div className="border border-[#444444] rounded-lg overflow-x-auto bg-[#242424]">
@@ -611,6 +663,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
                     <tr>
                       <th className="py-2.5 px-3">Request ID</th>
                       <th className="py-2.5 px-3">Recipient</th>
+                      <th className="py-2.5 px-3">Template</th>
                       <th className="py-2.5 px-3">Status</th>
                       <th className="py-2.5 px-3">Attempts</th>
                       <th className="py-2.5 px-3">Schedule / Last Attempt</th>
@@ -619,50 +672,133 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#383838] text-gray-200">
-                    {emailJobs.map((job) => (
-                      <tr key={job.id} className="hover:bg-[#353535] transition-colors">
-                        <td className="py-2.5 px-3 font-mono font-bold text-[#95EA00] whitespace-nowrap">
-                          {job.submissionId}
-                        </td>
-                        <td className="py-2.5 px-3 truncate max-w-[150px]">{job.recipientEmail}</td>
-                        <td className="py-2.5 px-3 whitespace-nowrap">{getStatusBadge(job.status)}</td>
-                        <td className="py-2.5 px-3 font-mono text-[11px]">{job.attemptCount} / 5</td>
-                        <td className="py-2.5 px-3 whitespace-nowrap text-gray-400 text-[11px]">
-                          {job.nextRetryAt && (job.status === 'failed' || job.status === 'queued') && job.attemptCount < 5 ? (
-                            <span className="text-amber-300 font-medium">
-                              Retry: {formatPhoenixDateTime(job.nextRetryAt)}
-                            </span>
-                          ) : (
-                            formatPhoenixDateTime(job.lastAttemptAt || job.createdAt)
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 max-w-[200px] truncate text-gray-400 text-[11px]" title={job.errorMessage || job.providerMessageId || ''}>
-                          {job.errorMessage ? (
-                            <span className="text-rose-300 font-medium">{job.errorMessage}</span>
-                          ) : job.providerMessageId ? (
-                            <span className="font-mono text-gray-300">ID: {job.providerMessageId}</span>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                          {job.status === 'processing' ? (
-                            <span className="text-[10px] text-blue-300 uppercase tracking-wider font-bold">Lease Active</span>
-                          ) : (job.status === 'failed' || (job.status === 'queued' && job.attemptCount > 0)) && job.attemptCount < 5 ? (
+                    {visibleEmailJobs.map((job) => (
+                      <React.Fragment key={job.id}>
+                        <tr className="hover:bg-[#353535] transition-colors">
+                          <td className="py-2.5 px-3 font-mono font-bold text-[#95EA00] whitespace-nowrap">
+                            {job.submissionId}
+                          </td>
+                          <td className="py-2.5 px-3 truncate max-w-[150px]">{job.recipientEmail}</td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">{getSavedTemplateLabel(job)}</td>
+                          <td className="py-2.5 px-3 whitespace-nowrap">{getStatusBadge(job.status)}</td>
+                          <td className="py-2.5 px-3 font-mono text-[11px]">{job.attemptCount} / 5</td>
+                          <td className="py-2.5 px-3 whitespace-nowrap text-gray-400 text-[11px]">
+                            {job.nextRetryAt && (job.status === 'failed' || job.status === 'queued') && job.attemptCount < 5 ? (
+                              <span className="text-amber-300 font-medium">
+                                Retry: {formatPhoenixDateTime(job.nextRetryAt)}
+                              </span>
+                            ) : (
+                              formatPhoenixDateTime(job.lastAttemptAt || job.createdAt)
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 max-w-[200px] truncate text-gray-400 text-[11px]" title={job.errorMessage || job.providerMessageId || ''}>
+                            {job.errorMessage ? (
+                              <span className="text-rose-300 font-medium">{job.errorMessage}</span>
+                            ) : job.providerMessageId ? (
+                              <span className="font-mono text-gray-300">ID: {job.providerMessageId}</span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                            {job.status === 'processing' ? (
+                              <span className="text-[10px] text-blue-300 uppercase tracking-wider font-bold">Lease Active</span>
+                            ) : (job.status === 'failed' || (job.status === 'queued' && job.attemptCount > 0)) && job.attemptCount < 5 ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRetryJob(job.id)}
+                                disabled={retryingJobId === job.id}
+                                className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold text-purple-200 bg-[#A559BD]/20 hover:bg-[#A559BD]/30 border border-[#A559BD]/50 rounded transition-colors"
+                              >
+                                <RefreshCw className={`w-3 h-3 ${retryingJobId === job.id ? 'animate-spin' : ''}`} />
+                                <span>Retry</span>
+                              </button>
+                            ) : job.attemptCount >= 5 ? (
+                              <span className="text-[10px] text-gray-500 font-semibold uppercase">Max Attempts (5/5)</span>
+                            ) : null}
                             <button
                               type="button"
-                              onClick={() => handleRetryJob(job.id)}
-                              disabled={retryingJobId === job.id}
-                              className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold text-purple-200 bg-[#A559BD]/20 hover:bg-[#A559BD]/30 border border-[#A559BD]/50 rounded transition-colors"
+                              onClick={() =>
+                                setExpandedJobIds((previous) => ({
+                                  ...previous,
+                                  [job.id]: !previous[job.id],
+                                }))
+                              }
+                              aria-expanded={Boolean(expandedJobIds[job.id])}
+                              className="ml-2 inline-flex items-center gap-1 rounded border border-[#444444] px-2 py-1 text-[10px] text-gray-300 hover:text-white"
                             >
-                              <RefreshCw className={`w-3 h-3 ${retryingJobId === job.id ? 'animate-spin' : ''}`} />
-                              <span>Retry</span>
+                              <ChevronRight
+                                className={`h-3 w-3 transition-transform ${
+                                  expandedJobIds[job.id] ? 'rotate-90' : ''
+                                }`}
+                              />
+                              Details
                             </button>
-                          ) : job.attemptCount >= 5 ? (
-                            <span className="text-[10px] text-gray-500 font-semibold uppercase">Max Attempts (5/5)</span>
-                          ) : null}
-                        </td>
-                      </tr>
+                          </td>
+                        </tr>
+                        {expandedJobIds[job.id] && (
+                          <tr className="bg-[#1e1e1e]">
+                            <td colSpan={8} className="px-4 py-3">
+                              <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                <div>
+                                  <dt className="text-[10px] uppercase text-gray-500">Template ID</dt>
+                                  <dd className="mt-1 font-mono text-gray-200">{job.templateId || 'Unknown / Legacy'}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase text-gray-500">Template version</dt>
+                                  <dd className="mt-1 text-gray-200">
+                                    {typeof job.templateVersion === 'number'
+                                      ? `v${job.templateVersion}`
+                                      : 'Unknown / Legacy'}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase text-gray-500">Recipient</dt>
+                                  <dd className="mt-1 break-all text-gray-200">{job.recipientEmail}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase text-gray-500">Request ID</dt>
+                                  <dd className="mt-1 font-mono text-gray-200">{job.submissionId}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase text-gray-500">Status</dt>
+                                  <dd className="mt-1 text-gray-200">{job.status}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase text-gray-500">Attempt count</dt>
+                                  <dd className="mt-1 text-gray-200">{job.attemptCount} / 5</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase text-gray-500">Created</dt>
+                                  <dd className="mt-1 text-gray-200">{formatPhoenixDateTime(job.createdAt)}</dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase text-gray-500">Last attempt</dt>
+                                  <dd className="mt-1 text-gray-200">
+                                    {job.lastAttemptAt ? formatPhoenixDateTime(job.lastAttemptAt) : '—'}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase text-gray-500">Delivered / accepted</dt>
+                                  <dd className="mt-1 text-gray-200">
+                                    {job.deliveredAt ? formatPhoenixDateTime(job.deliveredAt) : '—'}
+                                  </dd>
+                                </div>
+                                <div>
+                                  <dt className="text-[10px] uppercase text-gray-500">Next retry</dt>
+                                  <dd className="mt-1 text-gray-200">
+                                    {job.nextRetryAt ? formatPhoenixDateTime(job.nextRetryAt) : '—'}
+                                  </dd>
+                                </div>
+                                <div className="sm:col-span-2">
+                                  <dt className="text-[10px] uppercase text-gray-500">Delivery error</dt>
+                                  <dd className="mt-1 break-words text-rose-300">{job.errorMessage || '—'}</dd>
+                                </div>
+                              </dl>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     ))}
                   </tbody>
                 </table>
