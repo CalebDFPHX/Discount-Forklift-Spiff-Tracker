@@ -32,7 +32,7 @@ export function sanitizeEmailProviderError(error: unknown): string {
     if (secret) message = message.split(secret).join('[redacted]');
   }
   message = message.replace(
-    /([A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,})/g,
+    /([A-Za-z0-9_-]{20,}\.){1,2}[A-Za-z0-9_-]{20,}/g,
     '[redacted action token]'
   );
   if (/535|534|authentication|credentials|invalid login/i.test(message)) {
@@ -106,11 +106,14 @@ async function deliverEmail(params: {
     );
 
     if (response.error) {
-      console.error('[Email] Resend provider error:', response.error);
+      const message = sanitizeEmailProviderError(
+        response.error.message || 'Resend provider error'
+      );
+      console.error(`[Email] Resend provider error: ${message}`);
       return {
         success: false,
         status: 'failed',
-        error: response.error.message || 'Resend provider error',
+        error: message,
       };
     }
 

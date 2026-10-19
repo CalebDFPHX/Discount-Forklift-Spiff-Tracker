@@ -12,7 +12,12 @@ import {
   Users,
   Check,
 } from 'lucide-react';
-import { SpiffSubmission, SalesRep, NotificationContact } from '../lib/repository';
+import {
+  SpiffSubmission,
+  SalesRep,
+  NotificationContact,
+  PaidReceiptNotificationResult,
+} from '../lib/repository';
 import { formatDollars } from '../lib/formatters';
 
 interface RecipientItem {
@@ -35,7 +40,8 @@ interface DecisionConfirmModalProps {
     decision: 'approve' | 'deny',
     reasonOrMessage: string,
     selectedRecipients: Array<{ email: string; name: string; role: string }>
-  ) => Promise<void>;
+  ) => Promise<PaidReceiptNotificationResult[]>;
+  onRetryPaidReceipt: (jobId: string) => Promise<PaidReceiptNotificationResult>;
 }
 
 export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
@@ -46,12 +52,16 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
   repRecord,
   allContacts,
   onConfirm,
+  onRetryPaidReceipt,
 }) => {
   const [reasonOrMessage, setReasonOrMessage] = useState('');
   const [selectedRecipientIds, setSelectedRecipientIds] = useState<Set<string>>(new Set());
   const [contactSearch, setContactSearch] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [receiptResults, setReceiptResults] = useState<PaidReceiptNotificationResult[]>([]);
+  const [decisionCompleted, setDecisionCompleted] = useState(false);
+  const [retryingReceiptId, setRetryingReceiptId] = useState<string | null>(null);
 
   const isApprove = decision === 'approve';
 
@@ -74,6 +84,8 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
 
     setReasonOrMessage('');
     setError(null);
+    setReceiptResults([]);
+    setDecisionCompleted(false);
     setContactSearch('');
 
     const initialIds = new Set<string>();
@@ -184,12 +196,31 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      await onConfirm(submission.id, decision, reasonOrMessage.trim(), finalList);
-      onClose();
+      const notifications = await onConfirm(submission.id, decision, reasonOrMessage.trim(), finalList);
+      setReceiptResults(notifications);
+      setDecisionCompleted(true);
+      if (!isApprove) onClose();
     } catch (err: any) {
       setError(err.message || 'Failed to save decision.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const retryReceipt = async (jobId: string) => {
+    setRetryingReceiptId(jobId);
+    setError(null);
+    try {
+      const result = await onRetryPaidReceipt(jobId);
+      setReceiptResults((previous) =>
+        previous.map((receipt) =>
+          receipt.notificationJobId === jobId ? result : receipt
+        )
+      );
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : 'Receipt retry failed.');
+    } finally {
+      setRetryingReceiptId(null);
     }
   };
 
@@ -236,6 +267,38 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
             <div className="p-3 bg-rose-950/50 border border-rose-800 rounded-lg text-xs text-rose-200 flex items-start space-x-2">
               <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {receiptResults.length > 0 && (
+            <div className="space-y-2 rounded-lg border border-[#444444] bg-[#1e1e1e] p-3">
+              <h4 className="text-xs font-bold text-white">Paid Receipt Notifications</h4>
+              {receiptResults.map((receipt) => (
+                <div
+                  key={receipt.notificationJobId}
+                  className="flex flex-wrap items-center justify-between gap-2 text-xs"
+                >
+                  <div>
+                    <div className="text-gray-200">{receipt.recipientEmail}</div>
+                    <div className="text-gray-400">
+                      Job {receipt.notificationJobId} · {receipt.status === 'accepted'
+                        ? 'accepted by provider (not confirmed delivered)'
+                        : receipt.status} · {receipt.attemptCount}/5 attempts
+                      {receipt.errorMessage ? ` · ${receipt.errorMessage}` : ''}
+                    </div>
+                  </div>
+                  {receipt.canRetry && (
+                    <button
+                      type="button"
+                      onClick={() => retryReceipt(receipt.notificationJobId)}
+                      disabled={retryingReceiptId === receipt.notificationJobId}
+                      className="rounded border border-[#A559BD]/60 bg-[#A559BD]/20 px-2.5 py-1 font-semibold text-purple-100 disabled:opacity-50"
+                    >
+                      {retryingReceiptId === receipt.notificationJobId ? 'Retrying...' : 'Retry receipt'}
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
@@ -324,7 +387,7 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
 
             {isApprove ? (
               <div className="rounded-lg border border-[#444444] bg-[#242424] p-3 text-xs text-gray-300">
-                The paid receipt is sent to the submitting rep’s assigned active General Manager(s), or their active branch GM when no assignment is available. An active GM must be available before approval can be completed.
+                The paid receipt is sent only to the rep’s explicitly assigned active contacts with the exact “General Manager” role. If an assignment is missing or inactive, update it in Rep Management before approving.
               </div>
             ) : (
               <>
@@ -427,21 +490,23 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              disabled={isSubmitting}
+              disabled={isSubmitting || decisionCompleted}
               className="px-4 py-2 text-xs font-semibold text-gray-300 border border-[#444444] rounded-lg bg-[#1e1e1e] hover:bg-[#383838] hover:text-white transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || decisionCompleted}
               className={`inline-flex items-center space-x-1.5 px-5 py-2 text-xs font-bold rounded-lg shadow-md transition-colors ${
                 isApprove
                   ? 'bg-[#95EA00] hover:bg-[#83cc00] text-black disabled:bg-[#95EA00]/50'
                   : 'bg-rose-600 hover:bg-rose-700 text-white disabled:bg-rose-400'
               }`}
             >
-              {isSubmitting ? (
+              {decisionCompleted ? (
+                <span>Decision saved</span>
+              ) : isSubmitting ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>Processing Decision & Dispatching Emails...</span>

@@ -229,6 +229,8 @@ export interface PaidReceiptNotificationResult {
   notificationJobId: string;
   status: EmailJob['status'];
   errorMessage: string | null;
+  attemptCount: number;
+  canRetry: boolean;
 }
 
 type EmailDelivery = typeof sendRenderedEmail;
@@ -1920,6 +1922,8 @@ export const Repository = {
         notificationJobId: job.id,
         status: job.status,
         errorMessage: job.errorMessage || null,
+        attemptCount: job.attemptCount,
+        canRetry: job.attemptCount < 5 && (job.status === 'failed' || job.status === 'queued'),
       }));
   },
 
@@ -1938,7 +1942,22 @@ export const Repository = {
       throw new Error('A paid receipt can only be recovered for a request that is already Approved.');
     }
 
-    const managers = await this.getAssignedActiveGeneralManagers(submission.repId);
+    let managers: NotificationContact[];
+    try {
+      managers = await this.getAssignedActiveGeneralManagers(submission.repId);
+    } catch (error) {
+      const existing = await this.getPaidReceiptNotificationResults(submissionId);
+      if (existing.length === 0) throw error;
+      const guidance = sanitizeEmailProviderError(error);
+      return existing.map((receipt) => ({
+        ...receipt,
+        errorMessage: receipt.status === 'accepted' || receipt.status === 'delivered'
+          ? receipt.errorMessage
+          : [receipt.errorMessage, guidance].filter(Boolean).join(' '),
+      }));
+    }
+
+    const actionErrors = new Map<string, string>();
     for (const manager of managers) {
       const email = manager.email.trim().toLowerCase();
       let jobs = await this.getPaidReceiptNotificationResults(submissionId);
@@ -1995,15 +2014,23 @@ export const Repository = {
       }
 
       if (existing.status === 'queued' || existing.status === 'failed') {
-        const job = existing.status === 'queued'
-          ? await this.dispatchJob(existing.notificationJobId, appUrl, deliverEmail)
-          : await this.retryNotification(existing.notificationJobId, appUrl, deliverEmail);
-        existing.status = job.status;
-        existing.errorMessage = job.errorMessage || null;
+        try {
+          const job = existing.status === 'queued'
+            ? await this.dispatchJob(existing.notificationJobId, appUrl, deliverEmail)
+            : await this.retryNotification(existing.notificationJobId, appUrl, deliverEmail);
+          existing.status = job.status;
+          existing.errorMessage = job.errorMessage || null;
+        } catch (error) {
+          actionErrors.set(existing.notificationJobId, sanitizeEmailProviderError(error));
+        }
       }
     }
 
-    return this.getPaidReceiptNotificationResults(submissionId);
+    return (await this.getPaidReceiptNotificationResults(submissionId)).map((receipt) => ({
+      ...receipt,
+      errorMessage:
+        actionErrors.get(receipt.notificationJobId) || receipt.errorMessage,
+    }));
   },
 
   // ----------------------------------------------------

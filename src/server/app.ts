@@ -652,11 +652,23 @@ app.get('/api/email-actions/:token', async (req, res) => {
         appUrl: CANONICAL_APP_URL,
       }
     );
+    const receiptNotifications =
+      token.decision === 'approve'
+        ? await Repository.getPaidReceiptNotificationResults(updated.id)
+        : [];
+    const receiptStatusText = receiptNotifications.length
+      ? ` Paid receipt status: ${receiptNotifications
+          .map(
+            (receipt) =>
+              `${receipt.recipientEmail} — ${receipt.status}${receipt.errorMessage ? ` (${receipt.errorMessage})` : ''}`
+          )
+          .join('; ')}.`
+      : '';
 
     return res
       .status(200)
       .type('text/plain')
-      .send(`Request ${updated.id} ${decisionText}. The decision has been recorded and the submitter has been notified.`);
+      .send(`Request ${updated.id} ${decisionText}. The decision has been recorded.${receiptStatusText}`);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Unable to process this decision link.';
     const statusCode = message.includes('already been decided') ? 409 : 400;
@@ -800,7 +812,10 @@ app.post('/api/admin/submissions/:id/decide', requireAdmin, async (req, res) => 
       recipients: recipients || [],
       appUrl: CANONICAL_APP_URL,
     });
-    res.json({ success: true, submission: updated });
+    const receiptNotifications = decision === 'approve'
+      ? await Repository.getPaidReceiptNotificationResults(updated.id)
+      : [];
+    res.json({ success: true, submission: updated, receiptNotifications });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -811,7 +826,8 @@ app.post('/api/admin/submissions/:id/approve', requireAdmin, async (req, res) =>
   try {
     const adminUser = (req as any).adminUser;
     const updated = await Repository.approveSubmission(req.params.id, adminUser);
-    res.json({ success: true, submission: updated });
+    const receiptNotifications = await Repository.getPaidReceiptNotificationResults(updated.id);
+    res.json({ success: true, submission: updated, receiptNotifications });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -1246,6 +1262,23 @@ app.post('/api/admin/email-jobs/:id/retry', requireAdmin, async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+
+app.post(
+  '/api/admin/submissions/:id/paid-receipt/recover',
+  requireAdmin,
+  requireAdministrator,
+  async (req, res) => {
+    try {
+      const receiptNotifications = await Repository.recoverPaidReceiptNotifications(
+        req.params.id,
+        CANONICAL_APP_URL
+      );
+      res.json({ success: true, receiptNotifications });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+);
 
 // Editable Email Templates API
 app.get('/api/admin/email-templates', requireAdmin, async (req, res) => {

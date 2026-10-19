@@ -13,7 +13,15 @@ import { AdminSettings } from './components/AdminSettings.js';
 import { AdminRequestDetailModal } from './components/AdminRequestDetailModal.js';
 import { DecisionConfirmModal } from './components/DecisionConfirmModal.js';
 import { PhotoPreviewModal } from './components/PhotoPreviewModal.js';
-import { SpiffSubmission, SalesRep, Spiff, Attachment, NotificationContact, Branch } from '../lib/repository.js'
+import {
+  SpiffSubmission,
+  SalesRep,
+  Spiff,
+  Attachment,
+  NotificationContact,
+  Branch,
+  PaidReceiptNotificationResult,
+} from './lib/repository.js'
 import { adminFetch, setAdminSession, clearAdminSession, getAdminSession } from './lib/api.js';
 import { FileText, Award, Users, Settings as SettingsIcon, Contact, Sparkles, Building2 } from 'lucide-react';
 
@@ -176,7 +184,7 @@ export default function App() {
     decision: 'approve' | 'deny',
     reasonOrMessage: string,
     selectedRecipients: Array<{ email: string; name: string; role: string }>
-  ) => {
+  ): Promise<PaidReceiptNotificationResult[]> => {
     const res = await adminFetch(`/api/admin/submissions/${submissionId}/decide`, {
       method: 'POST',
       headers: {
@@ -200,6 +208,40 @@ export default function App() {
     // Immediately trigger ledger table refresh
     setLedgerRefreshTrigger((prev) => prev + 1);
     refreshConfig();
+    return data.receiptNotifications || [];
+  };
+
+  const handleRetryPaidReceipt = async (
+    jobId: string
+  ): Promise<PaidReceiptNotificationResult> => {
+    const res = await adminFetch(`/api/admin/email-jobs/${jobId}/retry`, {
+      method: 'POST',
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to retry the receipt notification.');
+    const result: PaidReceiptNotificationResult = {
+      recipientEmail: data.job.recipientEmail,
+      notificationJobId: data.job.id,
+      status: data.job.status,
+      errorMessage: data.job.errorMessage || null,
+      attemptCount: data.job.attemptCount,
+      canRetry: data.job.attemptCount < 5 && data.job.status === 'failed',
+    };
+    setLedgerRefreshTrigger((prev) => prev + 1);
+    return result;
+  };
+
+  const handleRecoverPaidReceipt = async (
+    submissionId: string
+  ): Promise<PaidReceiptNotificationResult[]> => {
+    const res = await adminFetch(
+      `/api/admin/submissions/${submissionId}/paid-receipt/recover`,
+      { method: 'POST' }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to recover the paid receipt notification.');
+    setLedgerRefreshTrigger((prev) => prev + 1);
+    return data.receiptNotifications || [];
   };
 
   const handleMarkPaidRequest = async (id: string) => {
@@ -432,6 +474,7 @@ export default function App() {
           repRecord={selectedRepRecord}
           allContacts={contacts}
           onConfirm={handleConfirmDecision}
+          onRetryPaidReceipt={handleRetryPaidReceipt}
         />
       )}
 
@@ -488,6 +531,9 @@ export default function App() {
           onMarkPaid={handleMarkPaidRequest}
           onCorrect={handleCorrectRequest}
           onViewPhoto={handleOpenPhoto}
+          canRecoverPaidReceipt={adminRole === 'Administrator'}
+          onRecoverPaidReceipt={handleRecoverPaidReceipt}
+          onRetryPaidReceipt={handleRetryPaidReceipt}
         />
       )}
 

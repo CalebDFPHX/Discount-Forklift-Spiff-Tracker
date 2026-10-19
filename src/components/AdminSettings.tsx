@@ -169,7 +169,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
       case 'accepted':
         return (
           <span className="text-emerald-300 bg-emerald-950/60 border border-emerald-800 px-2 py-0.5 rounded text-[11px] font-semibold">
-            accepted (provider)
+            accepted by provider (not confirmed delivered)
           </span>
         );
       case 'processing':

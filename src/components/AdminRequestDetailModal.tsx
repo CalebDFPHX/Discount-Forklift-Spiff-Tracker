@@ -13,7 +13,7 @@ import {
   Loader2,
   Mail,
 } from 'lucide-react';
-import { SpiffSubmission } from '../lib/repository';
+import { PaidReceiptNotificationResult, SpiffSubmission } from '../lib/repository';
 import { formatDollars, parseDollarsToCents, validateSerialSuffix } from '../lib/formatters';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone';
 
@@ -26,6 +26,9 @@ interface AdminRequestDetailModalProps {
   onMarkPaid: (id: string) => Promise<void>;
   onCorrect: (id: string, updates: any, explanation: string) => Promise<void>;
   onViewPhoto: (submission: SpiffSubmission) => void;
+  canRecoverPaidReceipt: boolean;
+  onRecoverPaidReceipt: (id: string) => Promise<PaidReceiptNotificationResult[]>;
+  onRetryPaidReceipt: (jobId: string) => Promise<PaidReceiptNotificationResult>;
 }
 
 export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = ({
@@ -37,6 +40,9 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
   onMarkPaid,
   onCorrect,
   onViewPhoto,
+  canRecoverPaidReceipt,
+  onRecoverPaidReceipt,
+  onRetryPaidReceipt,
 }) => {
   // Correction mode state
   const [isEditing, setIsEditing] = useState(false);
@@ -49,6 +55,9 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [receiptResults, setReceiptResults] = useState<PaidReceiptNotificationResult[]>([]);
+  const [isRecoveringReceipt, setIsRecoveringReceipt] = useState(false);
+  const [retryingReceiptId, setRetryingReceiptId] = useState<string | null>(null);
 
   if (!isOpen || !submission) return null;
 
@@ -77,6 +86,36 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
       setActionError(err.message || 'Failed to mark as paid.');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleRecoverPaidReceipt = async () => {
+    setActionError(null);
+    setIsRecoveringReceipt(true);
+    try {
+      const results = await onRecoverPaidReceipt(submission.id);
+      setReceiptResults(results);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to recover the paid receipt.');
+    } finally {
+      setIsRecoveringReceipt(false);
+    }
+  };
+
+  const handleRetryPaidReceipt = async (jobId: string) => {
+    setActionError(null);
+    setRetryingReceiptId(jobId);
+    try {
+      const result = await onRetryPaidReceipt(jobId);
+      setReceiptResults((previous) =>
+        previous.map((receipt) =>
+          receipt.notificationJobId === jobId ? result : receipt
+        )
+      );
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to retry the paid receipt.');
+    } finally {
+      setRetryingReceiptId(null);
     }
   };
 
@@ -457,6 +496,54 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
             </div>
           )}
         </div>
+
+        {submission.status === 'Approved' && canRecoverPaidReceipt && (
+          <div className="border-t border-[#383838] bg-[#242424] p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold text-white">Paid Receipt Email</h4>
+                <p className="text-[11px] text-gray-400">
+                  Recover the notification without changing approval or payment status.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleRecoverPaidReceipt}
+                disabled={isRecoveringReceipt || isProcessing}
+                className="inline-flex items-center gap-1.5 rounded border border-[#A559BD]/60 bg-[#A559BD]/20 px-3 py-1.5 text-xs font-semibold text-purple-100 disabled:opacity-50"
+              >
+                {isRecoveringReceipt && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {isRecoveringReceipt ? 'Checking / recovering...' : 'Recover receipt'}
+              </button>
+            </div>
+            {receiptResults.map((receipt) => (
+              <div
+                key={receipt.notificationJobId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded border border-[#444444] bg-[#1e1e1e] p-2.5 text-xs"
+              >
+                <div>
+                  <div className="text-gray-200">{receipt.recipientEmail}</div>
+                  <div className="text-gray-400">
+                    Job {receipt.notificationJobId} · {receipt.status === 'accepted'
+                      ? 'accepted by provider (not confirmed delivered)'
+                      : receipt.status} · {receipt.attemptCount}/5 attempts
+                    {receipt.errorMessage ? ` · ${receipt.errorMessage}` : ''}
+                  </div>
+                </div>
+                {receipt.canRetry && (
+                  <button
+                    type="button"
+                    onClick={() => handleRetryPaidReceipt(receipt.notificationJobId)}
+                    disabled={retryingReceiptId === receipt.notificationJobId}
+                    className="rounded border border-[#A559BD]/60 bg-[#A559BD]/20 px-2.5 py-1 font-semibold text-purple-100 disabled:opacity-50"
+                  >
+                    {retryingReceiptId === receipt.notificationJobId ? 'Retrying...' : 'Retry'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Action Controls Footer */}
         <div className="p-4 bg-[#1e1e1e] border-t border-[#383838] flex flex-wrap items-center justify-between gap-3">

@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "test:paid-receipts": "tsx --test tests/paid-receipt.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "setup:admin": "tsx scripts/create-initial-admin.ts",
