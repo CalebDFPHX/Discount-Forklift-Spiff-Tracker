@@ -262,15 +262,15 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
           status: data.status,
           message:
             data.status === 'simulated'
-              ? 'Test email dispatched in local simulation mode (RESEND_API_KEY not configured in preview).'
-              : `Dispatched via Resend API (Message ID: ${data.providerMessageId || 'accepted'}). Notice: Accepted by mail server; final mailbox delivery depends on recipient spam filters.`,
+              ? 'Test email simulated because no email provider is configured.'
+              : `Accepted by the email provider (Message ID: ${data.providerMessageId || 'accepted'}). Final mailbox delivery may depend on recipient spam filters.`,
           providerMessageId: data.providerMessageId,
         });
       } else {
         setTestResult({
           success: false,
           status: 'failed',
-          message: data.error || 'Failed to dispatch test email via Resend.',
+          message: data.error || 'Failed to dispatch test email.',
         });
       }
     } catch (err: any) {
@@ -311,7 +311,7 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
               Editable Email Templates
             </h3>
             <span className="bg-[#95EA00]/15 text-[#95EA00] border border-[#95EA00]/30 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider">
-              Resend Powered
+              Email Provider
             </span>
           </div>
           <p className="text-xs text-gray-300 mt-1">
@@ -839,7 +839,7 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
           <span>Send Test Email Dispatch</span>
         </div>
         <p className="text-[11px] text-gray-300">
-          Sends an immediate test email rendered with sample spiff details to verify visual styling and delivery through the Resend API.
+          Sends an immediate test email rendered with sample spiff details to verify visual styling and delivery through the configured email provider.
         </p>
 
         <div className="space-y-2">

@@ -195,7 +195,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
         <div>
           <h2 className="text-lg font-bold text-white">Office Notifications & Infrastructure</h2>
           <p className="text-xs text-gray-300 mt-0.5">
-            Configure notification dispatch, manage administrator & approving manager logins, customize email templates, and monitor job queues.
+            Configure email delivery, manage administrator & approving manager logins, customize email templates, and monitor job queues.
           </p>
         </div>
 
@@ -234,7 +234,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5">
-                PostgreSQL database, Resend email dispatches, and private Vercel Blob storage states
+                PostgreSQL database, configured email dispatch, and private Vercel Blob storage states
               </p>
             </div>
           </div>
@@ -244,8 +244,8 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
               <span className={`w-2 h-2 rounded-full ${statusInfo?.isNeonConfigured ? 'bg-[#95EA00]' : 'bg-amber-400'}`} />
               <span>Neon</span>
               <span className="text-gray-500">•</span>
-              <span className={`w-2 h-2 rounded-full ${statusInfo?.isResendConfigured ? 'bg-[#95EA00]' : 'bg-[#A559BD]'}`} />
-              <span>Resend</span>
+              <span className={`w-2 h-2 rounded-full ${statusInfo?.isEmailConfigured ? 'bg-[#95EA00]' : 'bg-[#A559BD]'}`} />
+              <span>{statusInfo?.emailProvider === 'gmail' ? 'Gmail' : 'Email'}</span>
               <span className="text-gray-500">•</span>
               <span className={`w-2 h-2 rounded-full ${statusInfo?.isBlobConfigured ? 'bg-[#95EA00]' : 'bg-purple-400'}`} />
               <span>Blob</span>
@@ -279,19 +279,27 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
                 </div>
               </div>
 
-              {/* Resend Email */}
+              {/* Email Delivery */}
               <div className="bg-[#2d2d2d] border border-[#444444] rounded-xl p-4 shadow-sm">
                 <div className="flex items-center space-x-2 text-white font-semibold text-xs mb-1">
-                  <Mail className={`w-4 h-4 ${statusInfo?.isResendConfigured ? 'text-[#95EA00]' : 'text-[#A559BD]'}`} />
-                  <span>Resend Email API</span>
+                  <Mail className={`w-4 h-4 ${statusInfo?.isEmailConfigured ? 'text-[#95EA00]' : 'text-[#A559BD]'}`} />
+                  <span>Email Delivery</span>
                 </div>
                 <p className="text-xs text-gray-300 mb-2">
-                  {statusInfo?.isResendConfigured
-                    ? 'Live Resend API key active for office notifications.'
-                    : 'RESEND_API_KEY not configured. Dispatches are safely simulated in preview.'}
+                  {statusInfo?.emailProvider === 'gmail'
+                    ? 'Gmail SMTP is active for app notifications.'
+                    : statusInfo?.emailProvider === 'resend'
+                      ? 'Resend is active for app notifications.'
+                      : statusInfo?.hasGmailConfiguration
+                        ? 'Gmail SMTP setup is incomplete. Configure both Gmail environment variables.'
+                        : 'No email provider configured. Notifications are simulated in preview.'}
                 </p>
                 <div className="text-[11px] font-mono bg-[#1e1e1e] border border-[#444444] p-1.5 rounded text-gray-300 truncate">
-                  {statusInfo?.isResendConfigured ? 'Resend Live Active' : 'Simulation Mode'}
+                  {statusInfo?.emailProvider === 'gmail'
+                    ? 'Gmail SMTP Active'
+                    : statusInfo?.emailProvider === 'resend'
+                      ? 'Resend Live Active'
+                      : 'Simulation Mode'}
                 </div>
               </div>
 
@@ -515,7 +523,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
               <div className="flex items-center space-x-2">
                 <h3 className="text-sm font-bold text-white">Editable Email Templates</h3>
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[#95EA00]/15 text-[#95EA00] border border-[#95EA00]/30">
-                  Resend Powered
+                  Email Provider
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5">

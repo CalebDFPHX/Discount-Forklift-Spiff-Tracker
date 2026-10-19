@@ -1,12 +1,110 @@
 import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 
 const resendApiKey = process.env.RESEND_API_KEY;
 const fromEmail = process.env.RESEND_FROM_EMAIL || 'notifications@discountforkliftphoenix.com';
+const gmailUser = process.env.GMAIL_USER?.trim();
+const gmailAppPassword = process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, '');
+export const hasGmailConfiguration = Boolean(gmailUser || gmailAppPassword);
 const appUrl = process.env.APP_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
 
 export const isResendConfigured = Boolean(resendApiKey && resendApiKey.startsWith('re_'));
+export const isGmailConfigured = Boolean(gmailUser && gmailAppPassword);
+export const isEmailConfigured =
+  isGmailConfigured || (!hasGmailConfiguration && isResendConfigured);
+export const emailProvider = isGmailConfigured
+  ? 'gmail'
+  : !hasGmailConfiguration && isResendConfigured
+    ? 'resend'
+    : null;
 
 export const resend = isResendConfigured && resendApiKey ? new Resend(resendApiKey) : null;
+
+async function deliverEmail(params: {
+  to: string;
+  subject: string;
+  html: string;
+  idempotencyKey?: string;
+}): Promise<{
+  success: boolean;
+  status: 'delivered' | 'accepted' | 'failed';
+  providerMessageId?: string;
+  error?: string;
+}> {
+  try {
+    if (isGmailConfigured && gmailUser && gmailAppPassword) {
+      const transport = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: {
+          user: gmailUser,
+          pass: gmailAppPassword,
+        },
+      });
+      const result = await transport.sendMail({
+        from: gmailUser,
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+      });
+
+      return {
+        success: true,
+        status: 'accepted',
+        providerMessageId: result.messageId,
+      };
+    }
+
+    if (!resend || !isResendConfigured) {
+      return {
+        success: false,
+        status: 'failed',
+        error: hasGmailConfiguration
+          ? 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.'
+          : 'Email delivery is not configured.',
+      };
+    }
+
+    const headers: Record<string, string> = {};
+    if (params.idempotencyKey) {
+      headers['Idempotency-Key'] = params.idempotencyKey;
+    }
+
+    const response = await resend.emails.send(
+      {
+        from: fromEmail,
+        to: [params.to],
+        subject: params.subject,
+        html: params.html,
+      },
+      Object.keys(headers).length > 0 ? { headers } : undefined
+    );
+
+    if (response.error) {
+      console.error('[Email] Resend provider error:', response.error);
+      return {
+        success: false,
+        status: 'failed',
+        error: response.error.message || 'Resend provider error',
+      };
+    }
+
+    return {
+      success: true,
+      status: 'accepted',
+      providerMessageId: response.data?.id,
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[Email] ${emailProvider || 'Provider'} delivery failed:`, error);
+    return {
+      success: false,
+      status: 'failed',
+      error: message,
+    };
+  }
+}
 
 export interface SpiffNotificationPayload {
   requestId: string;
@@ -47,7 +145,14 @@ export async function sendSpiffSubmissionEmail(payload: SpiffNotificationPayload
   providerMessageId?: string;
   error?: string;
 }> {
-  if (!isResendConfigured || !resend) {
+  if (!isEmailConfigured) {
+    if (hasGmailConfiguration) {
+      return {
+        success: false,
+        status: 'failed',
+        error: 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.',
+      };
+    }
     console.warn('[Resend] RESEND_API_KEY not configured. Simulating submission notification delivery.');
     return {
       success: true,
@@ -136,36 +241,11 @@ export async function sendSpiffSubmissionEmail(payload: SpiffNotificationPayload
 </html>
   `;
 
-  try {
-    const data = await resend.emails.send({
-      from: fromEmail,
-      to: [payload.recipientEmail],
-      subject,
-      html,
-    });
-
-    if (data.error) {
-      console.error('[Resend] Error response:', data.error);
-      return {
-        success: false,
-        status: 'failed',
-        error: data.error.message,
-      };
-    }
-
-    return {
-      success: true,
-      status: 'accepted',
-      providerMessageId: data.data?.id,
-    };
-  } catch (err: any) {
-    console.error('[Resend] Exception sending email:', err);
-    return {
-      success: false,
-      status: 'failed',
-      error: err.message || 'Unknown network error sending via Resend',
-    };
-  }
+  return deliverEmail({
+    to: payload.recipientEmail,
+    subject,
+    html,
+  });
 }
 
 /**
@@ -180,7 +260,14 @@ export async function sendSpiffDecisionResultEmail(
   providerMessageId?: string;
   error?: string;
 }> {
-  if (!isResendConfigured || !resend) {
+  if (!isEmailConfigured) {
+    if (hasGmailConfiguration) {
+      return {
+        success: false,
+        status: 'failed',
+        error: 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.',
+      };
+    }
     console.warn(`[Resend] RESEND_API_KEY not configured. Simulating decision email delivery to ${targetRecipient.email}.`);
     return {
       success: true,
@@ -284,36 +371,11 @@ export async function sendSpiffDecisionResultEmail(
 </html>
   `;
 
-  try {
-    const data = await resend.emails.send({
-      from: fromEmail,
-      to: [targetRecipient.email],
-      subject,
-      html,
-    });
-
-    if (data.error) {
-      console.error(`[Resend] Error sending decision email to ${targetRecipient.email}:`, data.error);
-      return {
-        success: false,
-        status: 'failed',
-        error: data.error.message,
-      };
-    }
-
-    return {
-      success: true,
-      status: 'accepted',
-      providerMessageId: data.data?.id,
-    };
-  } catch (err: any) {
-    console.error(`[Resend] Exception sending decision email to ${targetRecipient.email}:`, err);
-    return {
-      success: false,
-      status: 'failed',
-      error: err.message || 'Error dispatching decision email',
-    };
-  }
+  return deliverEmail({
+    to: targetRecipient.email,
+    subject,
+    html,
+  });
 }
 
 /**
@@ -330,9 +392,11 @@ export async function sendRenderedEmail(params: {
   providerMessageId?: string;
   error?: string;
 }> {
-  if (!isResendConfigured || !resend) {
-    const errorMsg = 'Email delivery unavailable: RESEND_API_KEY is not configured in environment.';
-    console.warn(`[Resend] ${errorMsg}`);
+  if (!isEmailConfigured) {
+    const errorMsg = hasGmailConfiguration
+      ? 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.'
+      : 'Email delivery unavailable: configure Gmail SMTP or Resend environment variables.';
+    console.warn(`[Email] ${errorMsg}`);
     return {
       success: false,
       status: 'failed',
@@ -340,43 +404,5 @@ export async function sendRenderedEmail(params: {
     };
   }
 
-  try {
-    const headers: Record<string, string> = {};
-    if (params.idempotencyKey) {
-      headers['Idempotency-Key'] = params.idempotencyKey;
-    }
-
-    const data = await resend.emails.send(
-      {
-        from: fromEmail,
-        to: [params.to],
-        subject: params.subject,
-        html: params.html,
-      },
-      Object.keys(headers).length > 0 ? { headers } : undefined
-    );
-
-    if (data.error) {
-      console.error(`[Resend] Provider error sending email to ${params.to}:`, data.error);
-      return {
-        success: false,
-        status: 'failed',
-        error: data.error.message || 'Resend provider error',
-      };
-    }
-
-    return {
-      success: true,
-      status: 'accepted',
-      providerMessageId: data.data?.id,
-    };
-  } catch (err: any) {
-    console.error(`[Resend] Exception dispatching email via Resend to ${params.to}:`, err);
-    return {
-      success: false,
-      status: 'failed',
-      error: err.message || 'Network exception dispatching email via Resend',
-    };
-  }
+  return deliverEmail(params);
 }
-

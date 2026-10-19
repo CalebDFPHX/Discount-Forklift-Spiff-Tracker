@@ -109,7 +109,25 @@ When connecting a production Neon database to Vercel or cloud hosting:
 
 ---
 
-### 5. Configuring Resend and Verifying a Sender
+### 5. Configuring Email Notifications
+
+The app can send notifications through Gmail SMTP or Resend. Gmail is selected when both `GMAIL_USER` and `GMAIL_APP_PASSWORD` are set; otherwise, the app uses Resend if `RESEND_API_KEY` is configured.
+
+#### Gmail SMTP (no sending domain required)
+1. Use the Gmail account that should send app notifications and enable [2-Step Verification](https://myaccount.google.com/signinoptions/two-step-verification).
+2. Open [Google App Passwords](https://myaccount.google.com/apppasswords) and create an app password for this app. Google may not offer App Passwords for some account types or managed accounts.
+3. In the deployed Vercel project, open **Settings > Environment Variables** and add:
+   ```env
+   GMAIL_USER="youraddress@gmail.com"
+   GMAIL_APP_PASSWORD="your-16-character-app-password"
+   ```
+   Keep the app password secret. Do not add it to source control or any browser-side setting. Spaces in the app password are ignored.
+4. Redeploy the Vercel project. In **Admin Settings > Infrastructure**, confirm the email delivery status reads **Gmail SMTP Active**.
+5. In **Admin Settings > Notification Routing**, set the recipient email, then send a test email from **Email Templates** to verify delivery.
+
+For local development, use the same two variables in the ignored local `.env` file and restart the server. Gmail is intended for low-volume notifications and has sending limits; Google Workspace administrators may also restrict SMTP or App Password use.
+
+#### Resend
 1. Go to [Resend.com](https://resend.com) and create an API Key with "Full access".
 2. Under **Domains**, click **Add Domain** (e.g. `discountforkliftphoenix.com`).
 3. Add the DNS records (DKIM and SPF) provided by Resend to your domain registrar.
@@ -119,7 +137,7 @@ When connecting a production Neon database to Vercel or cloud hosting:
    RESEND_FROM_EMAIL="notifications@discountforkliftphoenix.com"
    NOTIFICATION_RECIPIENT_EMAIL="caleb@discountforkliftphoenix.com"
    ```
-   *(During initial testing before domain verification is complete, Resend allows sending to your account email using `onboarding@resend.dev` as the sender).*
+   Resend requires a verified domain before it can send from your own address.
 
 ---
 
@@ -166,8 +184,10 @@ In your Vercel project's **Settings > Environment Variables**, add the following
 | `AUTH_SECRET` | 32-byte secret generated via `openssl rand -base64 32` |
 | `AUTH_TRUST_HOST` | `true` |
 | `INITIAL_ADMIN_EMAIL` | `caleb@discountforkliftphoenix.com` |
-| `RESEND_API_KEY` | Resend API key (`re_...`) |
-| `RESEND_FROM_EMAIL` | Verified sender (e.g. `notifications@discountforkliftphoenix.com`) |
+| `GMAIL_USER` | Gmail address used to send notifications (optional; use with `GMAIL_APP_PASSWORD`) |
+| `GMAIL_APP_PASSWORD` | Google App Password (optional; takes precedence over Resend when both Gmail variables are set) |
+| `RESEND_API_KEY` | Resend API key (`re_...`; optional alternative to Gmail) |
+| `RESEND_FROM_EMAIL` | Verified sender (when using Resend) |
 | `NOTIFICATION_RECIPIENT_EMAIL` | Office manager email receiving alerts |
 | `BLOB_READ_WRITE_TOKEN` | Generated automatically by Vercel Blob |
 | `APP_URL` | Canonical app URL (e.g. `https://spiffs.discountforklift.com`) |

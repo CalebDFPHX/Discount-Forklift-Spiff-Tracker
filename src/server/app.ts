@@ -26,7 +26,14 @@ import {
 import { validatePasswordStrength, verifyPassword } from '../lib/auth.js';
 import { createPersistentRateLimiter } from '../lib/rateLimiter.js';
 import { isNeonConfigured } from '../db/index.js';
-import { isResendConfigured, sendRenderedEmail } from '../lib/resend.js';
+import {
+  emailProvider,
+  hasGmailConfiguration,
+  isEmailConfigured,
+  isGmailConfigured,
+  isResendConfigured,
+  sendRenderedEmail,
+} from '../lib/resend.js';
 import { formatDollars } from '../lib/formatters.js';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone.js';
 
@@ -290,7 +297,7 @@ app.post(
           });
           const resetUrl = `${CANONICAL_APP_URL}/?setup_token=${rawToken}`;
 
-          if (isResendConfigured) {
+          if (isEmailConfigured) {
             try {
               await sendRenderedEmail({
                 to: cleanEmail,
@@ -594,6 +601,9 @@ app.get('/api/admin/status', requireAdmin, async (req, res) => {
   res.json({
     isNeonConfigured: Repository.isLiveDatabaseConnected(),
     isResendConfigured,
+    isGmailConfigured,
+    isEmailConfigured,
+    emailProvider,
     isBlobConfigured,
     adminEmail: (req as any).adminUser,
     adminRole: (req as any).adminRole,
