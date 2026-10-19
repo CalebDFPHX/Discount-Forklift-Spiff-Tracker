@@ -542,7 +542,7 @@ export function renderEmailTemplate(
   let rawBody = template.bodyHtml;
 
   // 1. Process conditional admin blocks: {{#if_admin}} ... {{/if_admin}}
-  if (recipientIsAdmin) {
+  if (recipientIsAdmin && !recipientIsSalesRep) {
     rawBody = rawBody.replace(/\{\{#if_admin\}\}/g, '').replace(/\{\{\/if_admin\}\}/g, '');
   } else {
     rawBody = rawBody.replace(/\{\{#if_admin\}\}[\s\S]*?\{\{\/if_admin\}\}/g, '');

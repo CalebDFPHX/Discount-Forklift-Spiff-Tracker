@@ -86,7 +86,10 @@ export const AdminContactsManager: React.FC<AdminContactsManagerProps> = ({
             isDefaultAccounting: role === 'Accounting' ? isDefaultAccounting : false,
           }),
         });
-        if (!res.ok) throw new Error('Failed to update contact.');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to update contact.');
+        }
       } else {
         const res = await adminFetch('/api/admin/contacts', {
           method: 'POST',
@@ -101,7 +104,10 @@ export const AdminContactsManager: React.FC<AdminContactsManagerProps> = ({
             isDefaultAccounting: role === 'Accounting' ? isDefaultAccounting : false,
           }),
         });
-        if (!res.ok) throw new Error('Failed to create contact.');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to create contact.');
+        }
       }
 
       setIsModalOpen(false);

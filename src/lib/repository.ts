@@ -742,7 +742,7 @@ export const Repository = {
   async createContact(input: {
     name: string;
     email: string;
-    role: 'Accounting' | 'General Manager' | 'Other';
+    role: NotificationContact['role'];
     branch?: string;
     isDefaultAccounting?: boolean;
   }): Promise<NotificationContact> {
@@ -784,7 +784,7 @@ export const Repository = {
     updates: Partial<{
       name: string;
       email: string;
-      role: 'Accounting' | 'General Manager' | 'Other';
+      role: NotificationContact['role'];
       branch: string | null;
       isDefaultAccounting: boolean;
       isActive: boolean;
@@ -792,7 +792,7 @@ export const Repository = {
   ): Promise<NotificationContact> {
     const now = new Date().toISOString();
     if (this.isLiveDatabaseConnected() && db) {
-      await db
+      const [updatedContact] = await db
         .update(schema.notificationContacts)
         .set({
           ...(updates.name !== undefined ? { name: updates.name.trim() } : {}),
@@ -803,7 +803,15 @@ export const Repository = {
           ...(updates.isActive !== undefined ? { isActive: updates.isActive } : {}),
           updatedAt: new Date(),
         })
-        .where(eq(schema.notificationContacts.id, id));
+        .where(eq(schema.notificationContacts.id, id))
+        .returning();
+      if (!updatedContact) throw new Error('Contact not found.');
+      return {
+        ...updatedContact,
+        role: updatedContact.role as NotificationContact['role'],
+        createdAt: updatedContact.createdAt.toISOString(),
+        updatedAt: updatedContact.updatedAt.toISOString(),
+      };
     }
 
     const idx = memoryStore.contacts.findIndex((c) => c.id === id);
@@ -2753,7 +2761,7 @@ export const Repository = {
             template,
             data,
             isRecipientAdmin,
-            job.recipientRole === 'Sales Rep'
+            job.recipientRole === 'Sales Rep' || job.recipientRole === 'Submitting Sales Rep'
           );
           subject = rendered.subject;
           const paidButton =
