@@ -130,7 +130,7 @@ For local development, use the same two variables in the ignored local `.env` fi
 
 New-submission notification emails include **Approve** and **Deny** links for the routed approving manager. The links are signed with `AUTH_SECRET`, expire after 7 days, and work only while the request is pending; the first decision wins. Clicking a link immediately records the decision without a separate sign-in or confirmation. Denial actions are recorded with the reason “Denied via email action.” Treat these links as sensitive and do not forward them.
 
-Approved-result emails omit the manager approval note from the sales representative's copy. Selected active General Managers receive a **Mark as Paid** link on the approved-result email; it requires no sign-in, expires after 7 days, and only works while the request is approved. Anyone with that link can mark the request paid, so keep the email private. Email link scanners may open action links automatically.
+The **Spiff Approved Result** goes to the submitting sales rep. Their assigned active General Manager(s) receive a separate **Spiff Approved Paid Receipt** with a **Mark as Paid** link; it requires no sign-in, expires after 7 days, and only works while the request is approved. Anyone with that link can mark the request paid, so keep the email private. Email link scanners may open action links automatically. The **Spiff Denied Result** continues to go to the rep and selected recipients.
 
 #### Resend
 1. Go to [Resend.com](https://resend.com) and create an API Key with "Full access".

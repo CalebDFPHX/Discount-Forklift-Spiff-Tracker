@@ -216,7 +216,9 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
                 {isApprove ? 'Confirm Spiff Approval' : 'Confirm Spiff Denial'}
               </h3>
               <p className="text-xs text-gray-300">
-                Decision will be permanently saved and emailed to selected recipients.
+                {isApprove
+                  ? 'The approved result goes to the submitting rep; their assigned General Manager receives the separate paid receipt.'
+                  : 'The denial will be permanently saved and emailed to the rep and selected recipients.'}
               </p>
             </div>
           </div>
@@ -304,28 +306,42 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
                   <span>Automatic Result Email Recipients</span>
                 </h4>
                 <p className="text-[11px] text-gray-400">
-                  Preselected from rep, assigned general manager(s), and accounting. Search to add or adjust.
+                  {isApprove
+                    ? 'The approval result is sent only to the submitting sales rep. Their assigned active General Manager(s) receive a separate receipt with a secure Mark as Paid button.'
+                    : 'Preselected from the rep, assigned general manager(s), and accounting. Search to add or adjust denial recipients.'}
                 </p>
               </div>
-              <span className="text-xs font-semibold px-2 py-0.5 rounded bg-[#1e1e1e] border border-[#444444] text-[#95EA00]">
-                {totalRecipientsCount} recipient{totalRecipientsCount === 1 ? '' : 's'}
-              </span>
+              {isApprove ? (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-[#1e1e1e] border border-[#444444] text-[#95EA00]">
+                  Rep + Assigned GM(s)
+                </span>
+              ) : (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-[#1e1e1e] border border-[#444444] text-[#95EA00]">
+                  {totalRecipientsCount} recipient{totalRecipientsCount === 1 ? '' : 's'}
+                </span>
+              )}
             </div>
 
-            {/* Recipient Selection Search Bar */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                placeholder="Search contacts by name, email, role, or branch..."
-                value={contactSearch}
-                onChange={(e) => setContactSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#1e1e1e] border border-[#444444] rounded-lg text-white placeholder-gray-500 focus:bg-[#181818] focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
-              />
-            </div>
+            {isApprove ? (
+              <div className="rounded-lg border border-[#444444] bg-[#242424] p-3 text-xs text-gray-300">
+                The paid receipt is sent to the submitting rep’s assigned active General Manager(s), or their active branch GM when no assignment is available. An active GM must be available before approval can be completed.
+              </div>
+            ) : (
+              <>
+                {/* Recipient Selection Search Bar */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Search contacts by name, email, role, or branch..."
+                    value={contactSearch}
+                    onChange={(e) => setContactSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-[#1e1e1e] border border-[#444444] rounded-lg text-white placeholder-gray-500 focus:bg-[#181818] focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
+                  />
+                </div>
 
-            {/* Recipient Cards Multi-Select List */}
-            <div className="border border-[#444444] rounded-lg max-h-48 overflow-y-auto divide-y divide-[#383838] text-xs bg-[#242424]">
+                {/* Recipient Cards Multi-Select List */}
+                <div className="border border-[#444444] rounded-lg max-h-48 overflow-y-auto divide-y divide-[#383838] text-xs bg-[#242424]">
               {/* Always Show Submitting Rep First (Locked) */}
               {repRecipient && (
                 <div className="p-2.5 flex items-center justify-between bg-[#1e1e1e]">
@@ -401,7 +417,9 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
                   No additional contacts match your search query.
                 </div>
               )}
-            </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Footer Action Buttons */}

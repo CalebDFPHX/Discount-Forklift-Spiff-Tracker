@@ -454,6 +454,12 @@ class InMemoryStore {
       updatedBy: 'System',
     },
     {
+      ...DEFAULT_EMAIL_TEMPLATES.spiff_approved_paid_receipt,
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'System',
+    },
+    {
       ...DEFAULT_EMAIL_TEMPLATES.spiff_denied,
       version: 1,
       updatedAt: new Date().toISOString(),
@@ -477,6 +483,16 @@ class InMemoryStore {
       version: 1,
       subject: DEFAULT_EMAIL_TEMPLATES.spiff_approved.subject,
       bodyHtml: DEFAULT_EMAIL_TEMPLATES.spiff_approved.bodyHtml,
+      changeSummary: 'Standard system default template',
+      createdAt: new Date().toISOString(),
+      createdBy: 'System',
+    },
+    {
+      id: 'ver_init_paid_receipt',
+      templateId: 'spiff_approved_paid_receipt',
+      version: 1,
+      subject: DEFAULT_EMAIL_TEMPLATES.spiff_approved_paid_receipt.subject,
+      bodyHtml: DEFAULT_EMAIL_TEMPLATES.spiff_approved_paid_receipt.bodyHtml,
       changeSummary: 'Standard system default template',
       createdAt: new Date().toISOString(),
       createdBy: 'System',
@@ -1868,7 +1884,7 @@ export const Repository = {
       allContacts.filter((c) => c.isActive).map((c) => [c.id, c])
     );
 
-    for (const r of input.recipients) {
+    for (const r of isApprove ? [] : input.recipients) {
       const cleanEmail = (r.email || '').trim().toLowerCase();
       if (!cleanEmail || !cleanEmail.includes('@')) continue;
 
@@ -1893,9 +1909,47 @@ export const Repository = {
 
     const recipientList = Array.from(uniqueRecipients.values());
 
-    // Fetch latest template for the decision
+    // Approval results go only to the submitting rep; the assigned GM gets a separate paid receipt.
     const templateId = isApprove ? 'spiff_approved' : 'spiff_denied';
     const template = await this.getEmailTemplate(templateId);
+    const paidReceiptRecipients: Array<{ email: string; name: string; role: string }> = [];
+    if (isApprove) {
+      const repRecord = await this.getRepById(sub.repId);
+      const assignedGmIds = (repRecord?.assignedGmIds || '')
+        .split(',')
+        .map((gmId) => gmId.trim())
+        .filter(Boolean);
+      const assignedManagers = allContacts.filter(
+        (contact) =>
+          contact.isActive &&
+          contact.role === 'General Manager' &&
+          assignedGmIds.includes(contact.id) &&
+          contact.email.trim().includes('@')
+      );
+      const managers = assignedManagers.length
+        ? assignedManagers
+        : allContacts.filter((contact) => {
+            const repBranch = (repRecord?.branch || '').trim().toLowerCase();
+            const contactBranch = (contact.branch || '').trim().toLowerCase();
+            return contact.isActive &&
+              contact.role === 'General Manager' &&
+              Boolean(repBranch && contactBranch &&
+                (contactBranch.includes(repBranch) || repBranch.includes(contactBranch))) &&
+              contact.email.trim().includes('@');
+          });
+      for (const manager of managers) {
+        const email = manager.email.trim().toLowerCase();
+        if (paidReceiptRecipients.some((recipient) => recipient.email === email)) continue;
+        paidReceiptRecipients.push({
+          email,
+          name: manager.name,
+          role: manager.role,
+        });
+      }
+      if (paidReceiptRecipients.length === 0) {
+        throw new Error('Cannot approve this request: no active General Manager is assigned to the submitting sales rep. Assign a General Manager in Rep Management and try again.');
+      }
+    }
 
     // Immutable event payload preserved across all subsequent job retries
     const eventPayloadObj = {
@@ -1941,12 +1995,8 @@ export const Repository = {
         template,
         data,
         isRecipientAdmin,
-        rec.role === 'Sales Rep'
+        rec.role === 'Sales Rep' || rec.role === 'Submitting Sales Rep'
       );
-      const paidButton =
-        isApprove && rec.role === 'General Manager'
-          ? renderEmailPaidButton(baseUrl, id, rec.email)
-          : '';
 
       const emailJob: EmailJob = {
         id: `job_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1962,12 +2012,57 @@ export const Repository = {
         templateId: template.id,
         templateVersion: template.version,
         renderedSubject: rendered.subject,
-        renderedBodyHtml: appendEmailActionContent(rendered.bodyHtml, paidButton),
+        renderedBodyHtml: rendered.bodyHtml,
         eventPayload: eventPayloadJson,
         createdAt: now,
       };
 
       createdJobs.push(emailJob);
+    }
+
+    if (isApprove) {
+      const paidReceiptTemplate = await this.getEmailTemplate('spiff_approved_paid_receipt');
+      for (const manager of paidReceiptRecipients) {
+        const receiptData = {
+          request_id: id,
+          rep_name: sub.snapshotRepName,
+          lift_name: sub.liftName,
+          serial_suffix: sub.serialSuffix,
+          spiff_name: sub.snapshotSpiffName,
+          spiff_amount: formatDollars(sub.snapshotAmountCents),
+          sale_date: formatPhoenixDate(sub.saleDate),
+          submitted_at: formatPhoenixDateTime(sub.submittedAt),
+          decision: decisionText,
+          decision_at: formatPhoenixDateTime(now),
+          decision_by: adminUser,
+          denial_reason: '',
+          approval_message: '',
+          admin_review_url: `${baseUrl}/admin?request=${id}`,
+        };
+        const rendered = renderEmailTemplate(paidReceiptTemplate, receiptData, false);
+        const emailJob: EmailJob = {
+          id: `job_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          submissionId: id,
+          jobType: 'decision_result',
+          recipientEmail: manager.email,
+          recipientName: manager.name,
+          recipientRole: manager.role,
+          status: 'queued',
+          attemptCount: 0,
+          lastAttemptAt: null,
+          idempotencyKey: `job_paid_receipt_${id}_${manager.email}`,
+          templateId: paidReceiptTemplate.id,
+          templateVersion: paidReceiptTemplate.version,
+          renderedSubject: rendered.subject,
+          renderedBodyHtml: appendEmailActionContent(
+            rendered.bodyHtml,
+            renderEmailPaidButton(baseUrl, id, manager.email)
+          ),
+          eventPayload: eventPayloadJson,
+          createdAt: now,
+        };
+        createdJobs.push(emailJob);
+      }
     }
 
     // Save to Database in an atomic Transaction with conditional status update
@@ -2631,7 +2726,10 @@ export const Repository = {
             job.recipientRole === 'Administrator' ||
             job.recipientRole === 'Admin';
 
-          const templateId = originalDecision === 'Approved' ? 'spiff_approved' : 'spiff_denied';
+          const isPaidReceipt = job.templateId === 'spiff_approved_paid_receipt';
+          const templateId = isPaidReceipt
+            ? 'spiff_approved_paid_receipt'
+            : originalDecision === 'Approved' ? 'spiff_approved' : 'spiff_denied';
           const template = await this.getEmailTemplate(templateId);
 
           const data = {
@@ -2659,7 +2757,8 @@ export const Repository = {
           );
           subject = rendered.subject;
           const paidButton =
-            originalDecision === 'Approved' && job.recipientRole === 'General Manager'
+            originalDecision === 'Approved' &&
+            (isPaidReceipt || job.recipientRole === 'General Manager')
               ? renderEmailPaidButton(baseUrl, sub.id, job.recipientEmail)
               : '';
           html = appendEmailActionContent(rendered.bodyHtml, paidButton);
@@ -2920,7 +3019,7 @@ export const Repository = {
     if (this.isLiveDatabaseConnected() && db) {
       const rows = await db.select().from(schema.emailTemplates);
       if (rows.length > 0) {
-        return rows.map((r) => ({
+        const savedTemplates = rows.map((r) => ({
           id: r.id,
           name: r.name,
           description: r.description || '',
@@ -2930,6 +3029,16 @@ export const Repository = {
           updatedAt: r.updatedAt.toISOString(),
           updatedBy: r.updatedBy,
         }));
+        const savedIds = new Set(savedTemplates.map((template) => template.id));
+        const missingDefaults = Object.values(DEFAULT_EMAIL_TEMPLATES)
+          .filter((template) => !savedIds.has(template.id))
+          .map((template) => ({
+            ...template,
+            version: 1,
+            updatedAt: new Date().toISOString(),
+            updatedBy: 'System Default',
+          }));
+        return [...savedTemplates, ...missingDefaults];
       }
     }
     return [...memoryStore.emailTemplates];
@@ -3132,7 +3241,7 @@ export const Repository = {
     };
 
     const rendered = renderEmailTemplate(
-      { subject: tplSubject, bodyHtml: tplBody },
+      { id: templateId, subject: tplSubject, bodyHtml: tplBody },
       sampleData,
       true
     );
@@ -3141,7 +3250,12 @@ export const Repository = {
     return sendRenderedEmail({
       to: cleanEmail,
       subject: testSubject,
-      html: rendered.bodyHtml,
+      html: templateId === 'spiff_approved_paid_receipt'
+        ? appendEmailActionContent(
+            rendered.bodyHtml,
+            '<div style="max-width:600px;margin:24px auto;padding:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;text-align:center;font-family:Arial,sans-serif;"><span style="display:inline-block;padding:12px 24px;background:#15803d;color:#ffffff;border-radius:6px;font-weight:700;">Mark as Paid</span><p style="margin:12px 0 0;color:#64748b;font-size:11px;">Test preview only — the live email includes a secure action link.</p></div>'
+          )
+        : rendered.bodyHtml,
     });
   },
 

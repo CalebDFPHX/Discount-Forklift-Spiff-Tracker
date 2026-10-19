@@ -7,7 +7,7 @@
 import { sanitizeEmailHtml, isSafeUrl } from './sanitizer.js';
 
 export interface EmailTemplate {
-  id: string; // 'new_submission' | 'spiff_approved' | 'spiff_denied'
+  id: string; // 'new_submission' | 'spiff_approved' | 'spiff_approved_paid_receipt' | 'spiff_denied'
   name: string;
   description: string;
   subject: string;
@@ -33,7 +33,7 @@ export interface PlaceholderDef {
   label: string;
   description: string;
   sample: string;
-  applicableTemplates: string[]; // ['new_submission', 'spiff_approved', 'spiff_denied']
+  applicableTemplates: string[];
 }
 
 export const SUPPORTED_PLACEHOLDERS: PlaceholderDef[] = [
@@ -42,77 +42,77 @@ export const SUPPORTED_PLACEHOLDERS: PlaceholderDef[] = [
     label: 'Request ID',
     description: 'Unique identifier for the spiff submission (e.g. SPF-2026-4821)',
     sample: 'SPF-2026-4821',
-    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'rep_name',
     label: 'Sales Rep Name',
     description: 'Full name of the submitting sales representative',
     sample: 'Jake Miller',
-    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'lift_name',
     label: 'Forklift / Model',
     description: 'Equipment model or forklift description',
     sample: 'Toyota 8FGU25 Pneumatic',
-    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'serial_suffix',
     label: 'Serial Suffix',
     description: 'Last 4 digits or characters of the serial number',
     sample: '4821',
-    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'spiff_name',
     label: 'Spiff Program',
     description: 'Title of the spiff program claimed',
     sample: 'Standard Forklift Sale Spiff',
-    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'spiff_amount',
     label: 'Spiff Amount',
     description: 'Formatted payout dollar amount with $ symbol',
     sample: '$150.00',
-    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'sale_date',
     label: 'Sale Date',
     description: 'Date the sale occurred formatted for Phoenix MST',
     sample: '10/08/2026',
-    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'submitted_at',
     label: 'Submission Timestamp',
     description: 'Date and time the rep submitted the request',
     sample: '10/08/2026 09:30 AM MST',
-    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'decision',
     label: 'Decision Status',
     description: 'Current decision outcome (Approved or Denied)',
     sample: 'Approved',
-    applicableTemplates: ['spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'decision_at',
     label: 'Decision Timestamp',
     description: 'Date and time the administrator decided the request',
     sample: '10/08/2026 10:15 AM MST',
-    applicableTemplates: ['spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'decision_by',
     label: 'Decision By',
     description: 'Name or email of the reviewing administrator',
     sample: 'Caleb Vance',
-    applicableTemplates: ['spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
     key: 'approval_message',
@@ -133,7 +133,7 @@ export const SUPPORTED_PLACEHOLDERS: PlaceholderDef[] = [
     label: 'Admin Review Link',
     description: 'Protected direct URL to review and decide in admin portal',
     sample: 'https://ais-dev-cxp4g2dragrwml6itk2qg6-123396949222.us-east1.run.app/admin?request=SPF-2026-4821',
-    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_denied'],
+    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
 ];
 
@@ -263,6 +263,35 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<string, Omit<EmailTemplate, 'update
     <div style="padding: 14px 24px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b; text-align: center;">
       Discount Forklift Phoenix · Sales Office Spiff Tracking System
     </div>
+  </div>
+</div>`,
+  },
+
+  spiff_approved_paid_receipt: {
+    id: 'spiff_approved_paid_receipt',
+    name: 'Spiff Approved Paid Receipt',
+    description: 'Sent to the submitting sales rep’s assigned General Manager after approval. The email includes a signed Mark as Paid action that updates the ledger.',
+    subject: 'Payment Confirmation Needed: Spiff [{{request_id}}] - {{rep_name}} ({{spiff_amount}})',
+    bodyHtml: `<div style="font-family: Arial, sans-serif; background-color: #f8fafc; padding: 24px; color: #1e293b;">
+  <div style="background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; max-width: 600px; margin: 0 auto; overflow: hidden;">
+    <div style="background-color: #242424; padding: 22px 24px; color: #ffffff; border-bottom: 3px solid #95EA00;">
+      <h1 style="margin: 0; font-size: 20px; font-weight: 700;">Spiff Approved — Payment Receipt</h1>
+      <p style="margin: 4px 0 0; color: #95EA00; font-size: 13px; font-weight: 600;">Request ID: {{request_id}}</p>
+    </div>
+    <div style="padding: 24px;">
+      <p style="font-size: 14px; line-height: 1.5;">The spiff below was approved for <strong>{{rep_name}}</strong>. After payment has been issued, use the button below to record it in the system.</p>
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr><td style="padding: 10px 0; color: #64748b;">Sales Representative</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{rep_name}}</td></tr>
+        <tr><td style="padding: 10px 0; color: #64748b;">Forklift / Model</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{lift_name}}</td></tr>
+        <tr><td style="padding: 10px 0; color: #64748b;">Serial Suffix</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{serial_suffix}}</td></tr>
+        <tr><td style="padding: 10px 0; color: #64748b;">Spiff Program</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{spiff_name}}</td></tr>
+        <tr><td style="padding: 10px 0; color: #64748b;">Approved Amount</td><td style="padding: 10px 0; text-align: right; color: #15803d; font-size: 18px; font-weight: 700;">{{spiff_amount}}</td></tr>
+        <tr><td style="padding: 10px 0; color: #64748b;">Approved By</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{decision_by}}</td></tr>
+        <tr><td style="padding: 10px 0; color: #64748b;">Approved Date</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{decision_at}}</td></tr>
+      </table>
+      <p style="margin: 18px 0 0; color: #475569; font-size: 12px;">Only mark this request paid after the payment has actually been issued. The action updates the system immediately and is available for 7 days.</p>
+    </div>
+    <div style="padding: 14px 24px; background-color: #f8fafc; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b; text-align: center;">Discount Forklift Phoenix · Sales Office Spiff Tracking System</div>
   </div>
 </div>`,
   },
@@ -570,6 +599,12 @@ export function renderEmailTemplate(
         <div style="font-size: 13px; color: #b91c1c; margin-top: 4px;">
           <strong>Recorded Denial Reason:</strong> ${reasonText}
         </div>
+      </div>
+    `;
+  } else if (templateId === 'spiff_approved_paid_receipt') {
+    fixedStatusBanner = `
+      <div style="background-color: #f0fdf4; border: 1px solid #86efac; border-radius: 6px; padding: 12px 16px; margin: 16px 0; color: #166534; font-family: sans-serif; font-size: 14px; line-height: 1.5;">
+        <strong style="color: #14532d;">Official Status:</strong> Approved — awaiting payment confirmation.
       </div>
     `;
   }

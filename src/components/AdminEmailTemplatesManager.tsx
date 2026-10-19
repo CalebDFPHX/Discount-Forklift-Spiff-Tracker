@@ -68,7 +68,8 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
   // Recipient routing selection per template
   const [routingPreferences, setRoutingPreferences] = useState<Record<string, string>>({
     new_submission: 'approving_manager_branch',
-    spiff_approved: 'rep_gm_accounting',
+    spiff_approved: 'rep_only',
+    spiff_approved_paid_receipt: 'assigned_gm',
     spiff_denied: 'rep_gm_accounting',
   });
   const [contacts, setContacts] = useState<Array<{ id: string; name: string; email: string; role: string; branch?: string }>>([]);
@@ -291,10 +292,16 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
       decision: selectedTemplateId === 'spiff_denied' ? 'Denied' : 'Approved',
     };
     const rendered = renderEmailTemplate(
-      { subject, bodyHtml },
+      { id: selectedTemplateId, subject, bodyHtml },
       sampleData,
       previewRole === 'admin'
     );
+    if (selectedTemplateId === 'spiff_approved_paid_receipt') {
+      return {
+        ...rendered,
+        bodyHtml: `${rendered.bodyHtml}<div style="max-width:600px;margin:24px auto;padding:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;text-align:center;font-family:Arial,sans-serif;"><span style="display:inline-block;padding:12px 24px;background:#15803d;color:#ffffff;border-radius:6px;font-weight:700;">Mark as Paid</span><p style="margin:12px 0 0;color:#64748b;font-size:11px;">Preview only — the delivered email includes a secure action link.</p></div>`,
+      };
+    }
     return rendered;
   };
 
@@ -332,7 +339,7 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
       </div>
 
       {/* Template Tabs Selector */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
         {templates.map((tpl) => {
           const isSelected = tpl.id === selectedTemplateId;
           return (
@@ -386,16 +393,25 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
         <div className="space-y-2">
           <label className="block text-xs font-semibold text-gray-200">
             {selectedTemplateId === 'new_submission'
-              ? 'Choose Recipient for Initial Spiff Submission Alert:'
+              ? 'Initial Spiff Submission Alert recipient:'
               : selectedTemplateId === 'spiff_approved'
-              ? 'Choose Recipients for Spiff Approved Result:'
-              : 'Choose Recipients for Spiff Denied Result:'}
+              ? 'Spiff Approved Result recipient:'
+              : selectedTemplateId === 'spiff_approved_paid_receipt'
+              ? 'Spiff Approved Paid Receipt recipient:'
+              : 'Spiff Denied Result recipients:'}
           </label>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div className="md:col-span-2">
               <select
-                value={routingPreferences[selectedTemplateId] || 'approving_manager_branch'}
+                value={
+                  selectedTemplateId === 'spiff_approved'
+                    ? 'rep_only'
+                    : selectedTemplateId === 'spiff_approved_paid_receipt'
+                    ? 'assigned_gm'
+                    : routingPreferences[selectedTemplateId] || 'approving_manager_branch'
+                }
+                disabled={selectedTemplateId === 'spiff_approved' || selectedTemplateId === 'spiff_approved_paid_receipt'}
                 onChange={(e) =>
                   setRoutingPreferences((prev) => ({
                     ...prev,
@@ -425,6 +441,10 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
                       Custom Office Recipient (Configured Notification Address)
                     </option>
                   </>
+                ) : selectedTemplateId === 'spiff_approved' ? (
+                  <option value="rep_only">Submitting Sales Rep Only</option>
+                ) : selectedTemplateId === 'spiff_approved_paid_receipt' ? (
+                  <option value="assigned_gm">Submitting Rep’s Assigned General Manager(s)</option>
                 ) : (
                   <>
                     <option value="rep_gm_accounting">
@@ -457,6 +477,16 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
                     <span>Branch Specific</span>
                   </span>
                 </>
+              ) : selectedTemplateId === 'spiff_approved' ? (
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-[#95EA00]/15 text-[#95EA00] border border-[#95EA00]/30">
+                  <User className="w-2.5 h-2.5" />
+                  <span>Submitting Sales Rep Only</span>
+                </span>
+              ) : selectedTemplateId === 'spiff_approved_paid_receipt' ? (
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-[#A559BD]/20 text-purple-200 border border-[#A559BD]/50">
+                  <Building2 className="w-2.5 h-2.5" />
+                  <span>Assigned General Manager(s)</span>
+                </span>
               ) : (
                 <>
                   <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-[#95EA00]/15 text-[#95EA00] border border-[#95EA00]/30">
@@ -499,10 +529,7 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
                 <span>2. Approval / Denial Result Dispatch</span>
               </div>
               <p className="text-gray-400 text-[10px] leading-relaxed">
-                Once reviewed and decided, completion emails are automatically dispatched to:
-                <br />• <strong>Sales Rep</strong> (decision & bonus summary)
-                <br />• <strong>Location General Manager</strong> (Carlos Morales — Dallas GM)
-                <br />• <strong>Accounting Department</strong> (payroll batch record)
+                When approved, the <strong>Spiff Approved Result</strong> goes only to the submitting sales rep. Their assigned <strong>General Manager</strong> receives the separate <strong>Spiff Approved Paid Receipt</strong> with a button to record payment in the ledger. Denials continue to send the <strong>Spiff Denied Result</strong> to the rep and selected recipients.
               </p>
             </div>
           </div>

@@ -232,7 +232,7 @@ export const branches = pgTable('branches', {
 
 // 11. Editable Email Templates
 export const emailTemplates = pgTable('email_templates', {
-  id: varchar('id', { length: 64 }).primaryKey(), // 'new_submission', 'spiff_approved', 'spiff_denied'
+  id: varchar('id', { length: 64 }).primaryKey(), // 'new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
   subject: varchar('subject', { length: 255 }).notNull(),
@@ -316,4 +316,3 @@ export const rateLimits = pgTable(
     index('idx_rate_limits_reset_at').on(table.resetAt),
   ]
 );
-
