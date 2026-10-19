@@ -214,6 +214,7 @@ export interface EmailJob {
   deliveredAt?: string | null;
   errorMessage?: string | null;
   providerMessageId?: string | null;
+  providerResponse?: string | null;
   idempotencyKey: string;
   templateId?: string | null;
   templateVersion?: number | null;
@@ -227,8 +228,11 @@ export interface EmailJob {
 export interface PaidReceiptNotificationResult {
   recipientEmail: string;
   notificationJobId: string;
+  templateId: string | null;
+  templateVersion: number | null;
   status: EmailJob['status'];
   errorMessage: string | null;
+  providerResponse: string | null;
   attemptCount: number;
   canRetry: boolean;
 }
@@ -1920,8 +1924,11 @@ export const Repository = {
       .map((job) => ({
         recipientEmail: job.recipientEmail,
         notificationJobId: job.id,
+        templateId: job.templateId || null,
+        templateVersion: job.templateVersion ?? null,
         status: job.status,
         errorMessage: job.errorMessage || null,
+        providerResponse: job.providerResponse || null,
         attemptCount: job.attemptCount,
         canRetry: job.attemptCount < 5 && (job.status === 'failed' || job.status === 'queued'),
       }));
@@ -2668,6 +2675,7 @@ export const Repository = {
             deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
             errorMessage: r.errorMessage,
             providerMessageId: r.providerMessageId,
+            providerResponse: r.providerResponse,
             idempotencyKey: r.idempotencyKey,
             templateId: r.templateId,
             templateVersion: r.templateVersion,
@@ -2717,6 +2725,7 @@ export const Repository = {
             deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
             errorMessage: r.errorMessage,
             providerMessageId: r.providerMessageId,
+            providerResponse: r.providerResponse,
             idempotencyKey: r.idempotencyKey,
             templateId: r.templateId,
             templateVersion: r.templateVersion,
@@ -2802,6 +2811,7 @@ export const Repository = {
             deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
             errorMessage: r.errorMessage,
             providerMessageId: r.providerMessageId,
+            providerResponse: r.providerResponse,
             idempotencyKey: r.idempotencyKey,
             templateId: r.templateId,
             templateVersion: r.templateVersion,
@@ -2909,6 +2919,7 @@ export const Repository = {
             deliveredAt: r.delivered_at ? new Date(r.delivered_at).toISOString() : null,
             errorMessage: r.error_message || r.errorMessage,
             providerMessageId: r.provider_message_id || r.providerMessageId,
+            providerResponse: r.provider_response || r.providerResponse,
             idempotencyKey: r.idempotency_key || r.idempotencyKey,
             templateId: r.template_id || r.templateId,
             templateVersion: r.template_version || r.templateVersion,
@@ -3101,16 +3112,19 @@ export const Repository = {
     let finalStatus: 'accepted' | 'failed' | 'simulated' = 'failed';
     let errorMessage: string | null = null;
     let providerMessageId: string | null = null;
+    let providerResponse: string | null = null;
     let nextRetryAt: Date | null = null;
+    providerMessageId = emailResult.providerMessageId || null;
 
     if (emailResult.success) {
       finalStatus = (emailResult.status as any) || 'accepted';
-      providerMessageId = emailResult.providerMessageId || null;
+      providerResponse = emailResult.providerResponse || null;
       errorMessage = null;
       nextRetryAt = null;
     } else {
       finalStatus = 'failed';
       errorMessage = emailResult.error || 'Delivery failed';
+      providerResponse = emailResult.providerResponse || null;
 
       // Exponential backoff schedule (minutes): 1, 5, 15, 60
       if (currentAttempt < 5) {
@@ -3127,6 +3141,7 @@ export const Repository = {
     job.lastAttemptAt = now.toISOString();
     job.status = finalStatus;
     job.providerMessageId = providerMessageId;
+    job.providerResponse = providerResponse;
     job.errorMessage = errorMessage;
     job.nextRetryAt = nextRetryAt ? nextRetryAt.toISOString() : null;
     job.renderedSubject = subject;
@@ -3142,6 +3157,7 @@ export const Repository = {
         .set({
           status: job.status,
           providerMessageId: job.providerMessageId,
+          providerResponse: job.providerResponse,
           errorMessage: job.errorMessage,
           nextRetryAt,
           lockedBy: null,
@@ -3195,6 +3211,8 @@ export const Repository = {
       : null;
     job.status = 'failed';
     job.errorMessage = failure;
+    job.providerMessageId = null;
+    job.providerResponse = null;
     job.nextRetryAt = nextRetryAt?.toISOString() || null;
     job.lockedBy = null;
     job.lockedAt = null;
@@ -3207,6 +3225,8 @@ export const Repository = {
         .set({
           status: 'failed',
           errorMessage: failure,
+          providerMessageId: null,
+          providerResponse: null,
           nextRetryAt,
           lockedBy: null,
           lockedAt: null,

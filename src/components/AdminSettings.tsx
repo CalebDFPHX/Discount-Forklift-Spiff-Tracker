@@ -17,6 +17,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { EmailJob } from '../lib/repository';
+import { getEmailTemplateDisplayName } from '../lib/emailTemplates';
 import { formatPhoenixDateTime } from '../lib/timezone';
 import { AdminUsersManager } from './AdminUsersManager';
 import { AdminEmailTemplatesManager } from './AdminEmailTemplatesManager';
@@ -39,18 +40,11 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
   const [templateFilter, setTemplateFilter] = useState('all');
   const [expandedJobIds, setExpandedJobIds] = useState<Record<string, boolean>>({});
 
-  const templateNames: Record<string, string> = {
-    new_submission: 'New Spiff Submission',
-    spiff_approved: 'Spiff Approved',
-    spiff_denied: 'Spiff Denied',
-    spiff_approved_paid_receipt: 'Spiff Approved Paid Receipt',
-  };
-
   const getSavedTemplateLabel = (job: EmailJob) => {
     if (!job.templateId || typeof job.templateVersion !== 'number') {
       return 'Unknown / Legacy';
     }
-    const name = templateNames[job.templateId];
+    const name = getEmailTemplateDisplayName(job.templateId);
     return name ? `${name} — v${job.templateVersion}` : 'Unknown / Legacy';
   };
 
@@ -793,6 +787,14 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
                                 <div className="sm:col-span-2">
                                   <dt className="text-[10px] uppercase text-gray-500">Delivery error</dt>
                                   <dd className="mt-1 break-words text-rose-300">{job.errorMessage || '—'}</dd>
+                                </div>
+                                <div className="sm:col-span-2">
+                                  <dt className="text-[10px] uppercase text-gray-500">
+                                    Gmail accepted / rejected recipients
+                                  </dt>
+                                  <dd className="mt-1 break-words font-mono text-gray-300">
+                                    {job.providerResponse || 'No recipient-level provider response recorded'}
+                                  </dd>
                                 </div>
                               </dl>
                             </td>

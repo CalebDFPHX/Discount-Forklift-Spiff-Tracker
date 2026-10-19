@@ -201,6 +201,7 @@ export const emailNotificationJobs = pgTable(
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     errorMessage: text('error_message'),
     providerMessageId: varchar('provider_message_id', { length: 255 }),
+    providerResponse: text('provider_response'),
     idempotencyKey: varchar('idempotency_key', { length: 128 }).notNull().unique(),
     templateId: varchar('template_id', { length: 64 }),
     templateVersion: integer('template_version'),

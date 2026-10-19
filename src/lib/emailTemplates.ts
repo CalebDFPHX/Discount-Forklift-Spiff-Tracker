@@ -17,6 +17,19 @@ export interface EmailTemplate {
   updatedBy: string;
 }
 
+const EMAIL_TEMPLATE_DISPLAY_NAMES: Record<string, string> = {
+  new_submission: 'New Spiff Submission',
+  spiff_approved: 'Spiff Approved',
+  spiff_denied: 'Spiff Denied',
+  spiff_approved_paid_receipt: 'Spiff Approved Paid Receipt',
+};
+
+export function getEmailTemplateDisplayName(
+  templateId: string | null | undefined
+): string | null {
+  return templateId ? EMAIL_TEMPLATE_DISPLAY_NAMES[templateId] || null : null;
+}
+
 export interface EmailTemplateVersion {
   id: string;
   templateId: string;

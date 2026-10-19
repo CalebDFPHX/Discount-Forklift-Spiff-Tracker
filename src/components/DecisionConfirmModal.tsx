@@ -18,6 +18,7 @@ import {
   NotificationContact,
   PaidReceiptNotificationResult,
 } from '../lib/repository';
+import { getEmailTemplateDisplayName } from '../lib/emailTemplates';
 import { formatDollars } from '../lib/formatters';
 
 interface RecipientItem {
@@ -279,6 +280,10 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
                   className="flex flex-wrap items-center justify-between gap-2 text-xs"
                 >
                   <div>
+                    <div className="text-gray-200">
+                      {getEmailTemplateDisplayName(receipt.templateId) || 'Unknown / Legacy'}
+                      {receipt.templateVersion !== null ? ` — v${receipt.templateVersion}` : ''}
+                    </div>
                     <div className="text-gray-200">{receipt.recipientEmail}</div>
                     <div className="text-gray-400">
                       Job {receipt.notificationJobId} · {receipt.status === 'accepted'
@@ -286,6 +291,11 @@ export const DecisionConfirmModal: React.FC<DecisionConfirmModalProps> = ({
                         : receipt.status} · {receipt.attemptCount}/5 attempts
                       {receipt.errorMessage ? ` · ${receipt.errorMessage}` : ''}
                     </div>
+                    {receipt.providerResponse && (
+                      <div className="mt-1 text-gray-500">
+                        Gmail recipient response: {receipt.providerResponse}
+                      </div>
+                    )}
                   </div>
                   {receipt.canRetry && (
                     <button

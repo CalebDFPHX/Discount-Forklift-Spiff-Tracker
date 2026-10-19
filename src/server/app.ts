@@ -37,6 +37,7 @@ import {
 import { formatDollars } from '../lib/formatters.js';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone.js';
 import { verifyEmailDecisionToken } from '../lib/emailDecisionTokens.js';
+import { getEmailTemplateDisplayName } from '../lib/emailTemplates.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -659,10 +660,15 @@ app.get('/api/email-actions/:token', async (req, res) => {
     const receiptStatusText = receiptNotifications.length
       ? ` Paid receipt status: ${receiptNotifications
           .map(
-            (receipt) =>
-              `${receipt.recipientEmail} — ${receipt.status}${receipt.errorMessage ? ` (${receipt.errorMessage})` : ''}`
-          )
-          .join('; ')}.`
+              (receipt) => {
+                const templateName =
+                  getEmailTemplateDisplayName(receipt.templateId) || 'Unknown / Legacy';
+                const version =
+                  receipt.templateVersion === null ? '' : ` — v${receipt.templateVersion}`;
+                return `${templateName}${version} to ${receipt.recipientEmail}, job ${receipt.notificationJobId}: ${receipt.status}, ${receipt.attemptCount} attempts${receipt.errorMessage ? ` (${receipt.errorMessage})` : ''}${receipt.providerResponse ? ` [provider response: ${receipt.providerResponse}]` : ''}`;
+              }
+            )
+            .join('; ')}.`
       : '';
 
     return res

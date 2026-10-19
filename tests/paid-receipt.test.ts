@@ -6,7 +6,10 @@ process.env.AUTH_SECRET = 'unit-test-only-email-action-secret';
 
 const { Repository, memoryStore } = await import('../src/lib/repository.js');
 const { createEmailDecisionToken, verifyEmailDecisionToken } = await import('../src/lib/emailDecisionTokens.js');
-const { sanitizeEmailProviderError } = await import('../src/lib/resend.js');
+const {
+  inspectSmtpRecipientAcceptance,
+  sanitizeEmailProviderError,
+} = await import('../src/lib/resend.js');
 const { default: app } = await import('../src/server/app.js');
 
 const APP_URL = 'https://spiff-test.example';
@@ -90,6 +93,76 @@ beforeEach(() => {
 });
 
 describe('approved paid receipt notifications', () => {
+  it('requires the exact GM address in Gmail accepted recipients and records rejection evidence', () => {
+    const accepted = inspectSmtpRecipientAcceptance(
+      'gm.one@example.test',
+      [{ address: 'GM.One@example.test' }],
+      []
+    );
+    assert.equal(accepted.error, undefined);
+    assert.deepEqual(JSON.parse(accepted.providerResponse), {
+      provider: 'gmail_smtp',
+      accepted: ['gm.one@example.test'],
+      rejected: [],
+    });
+
+    const rejected = inspectSmtpRecipientAcceptance(
+      'gm.one@example.test',
+      [],
+      ['gm.one@example.test']
+    );
+    assert.match(rejected.error || '', /did not accept gm\.one@example\.test/);
+    assert.deepEqual(JSON.parse(rejected.providerResponse), {
+      provider: 'gmail_smtp',
+      accepted: [],
+      rejected: ['gm.one@example.test'],
+    });
+
+    const messageIdOnly = inspectSmtpRecipientAcceptance(
+      'gm.one@example.test',
+      [],
+      []
+    );
+    assert.match(messageIdOnly.error || '', /Accepted recipients: none/);
+  });
+
+  it('keeps a Gmail job failed when its message ID exists but the GM was rejected', async () => {
+    const recipientResult = inspectSmtpRecipientAcceptance(
+      'gm.one@example.test',
+      [],
+      ['gm.one@example.test']
+    );
+    const submission = await Repository.decideSubmission(
+      submissionId,
+      'admin@example.test',
+      { decision: 'approve', recipients: [], appUrl: APP_URL },
+      async (message) => {
+        if (message.to === 'gm.one@example.test') {
+          return {
+            success: false,
+            status: 'failed',
+            providerMessageId: 'smtp-message-id-does-not-prove-acceptance',
+            providerResponse: recipientResult.providerResponse,
+            error: recipientResult.error,
+          };
+        }
+        return successfulMock();
+      }
+    );
+    assert.equal(submission.status, 'Approved');
+    const receipt = memoryStore.emailJobs.find(
+      (job) =>
+        job.templateId === 'spiff_approved_paid_receipt' &&
+        job.recipientEmail === 'gm.one@example.test'
+    );
+    assert.equal(receipt?.status, 'failed');
+    assert.equal(receipt?.providerMessageId, 'smtp-message-id-does-not-prove-acceptance');
+    assert.match(receipt?.errorMessage || '', /did not accept gm\.one@example\.test/);
+    assert.deepEqual(JSON.parse(receipt?.providerResponse || '{}').rejected, [
+      'gm.one@example.test',
+    ]);
+  });
+
   it('redacts credentials and signed action tokens from delivery errors', () => {
     const token = createEmailDecisionToken(submissionId, 'paid', 'gm.one@example.test');
     const sanitized = sanitizeEmailProviderError(
@@ -108,7 +181,14 @@ describe('approved paid receipt notifications', () => {
         assert.ok(actionToken, 'GM receipt contains a signed Mark as Paid link');
         assert.equal(verifyEmailDecisionToken(actionToken)?.decision, 'paid');
       }
-      return successfulMock();
+      return {
+        ...(await successfulMock()),
+        providerResponse: JSON.stringify({
+          provider: 'gmail_smtp',
+          accepted: [message.to],
+          rejected: [],
+        }),
+      };
     };
 
     const submission = await Repository.decideSubmission(
@@ -140,6 +220,16 @@ describe('approved paid receipt notifications', () => {
     assert.equal(approvalJob?.templateVersion, 1);
     assert.equal(paidReceiptJob?.templateId, 'spiff_approved_paid_receipt');
     assert.equal(paidReceiptJob?.templateVersion, 1);
+    assert.equal(
+      JSON.parse(paidReceiptJob?.providerResponse || '{}').accepted[0],
+      'gm.one@example.test'
+    );
+    assert.equal(receipts[0].templateId, 'spiff_approved_paid_receipt');
+    assert.equal(receipts[0].templateVersion, 1);
+    assert.equal(
+      JSON.parse(receipts[0].providerResponse || '{}').rejected.length,
+      0
+    );
 
     const currentTemplate = memoryStore.emailTemplates.find(
       (template) => template.id === 'spiff_approved_paid_receipt'
@@ -365,6 +455,7 @@ describe('approved paid receipt notifications', () => {
       assert.equal(approvalResponse.status, 200);
       assert.match(approvalBody, /Request .* approved/);
       assert.match(approvalBody, /gm\.one@example\.test.*failed/);
+      assert.match(approvalBody, /Spiff Approved Paid Receipt — v1 to gm\.one@example\.test, job job_/);
       assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Approved');
 
       const receiptHtml = memoryStore.emailJobs.find(

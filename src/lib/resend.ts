@@ -21,6 +21,53 @@ export const emailProvider = isGmailConfigured
 
 export const resend = isResendConfigured && resendApiKey ? new Resend(resendApiKey) : null;
 
+export function inspectSmtpRecipientAcceptance(
+  recipient: string,
+  accepted: Array<string | { address: string }>,
+  rejected: Array<string | { address: string }>
+): {
+  acceptedRecipients: string[];
+  rejectedRecipients: string[];
+  providerResponse: string;
+  error?: string;
+} {
+  const normalizeAddresses = (addresses: Array<string | { address: string }>) =>
+    addresses.map((address) =>
+      (typeof address === 'string' ? address : address.address).trim().toLowerCase()
+    );
+  const acceptedRecipients = normalizeAddresses(accepted);
+  const rejectedRecipients = normalizeAddresses(rejected);
+  const target = recipient.trim().toLowerCase();
+  const targetAccepted = acceptedRecipients.includes(target);
+  const targetRejected = rejectedRecipients.includes(target);
+
+  return {
+    acceptedRecipients,
+    rejectedRecipients,
+    providerResponse: JSON.stringify({
+      provider: 'gmail_smtp',
+      accepted: acceptedRecipients,
+      rejected: rejectedRecipients,
+    }),
+    ...(targetAccepted && !targetRejected
+      ? {}
+      : {
+          error: `Gmail SMTP did not accept ${target}. Accepted recipients: ${
+            acceptedRecipients.join(', ') || 'none'
+          }. Rejected recipients: ${rejectedRecipients.join(', ') || 'none'}.`,
+        }),
+  };
+}
+
+function getSmtpErrorRecipientLists(
+  error: unknown
+): { accepted: Array<string | { address: string }>; rejected: Array<string | { address: string }> } | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const details = error as { accepted?: unknown; rejected?: unknown };
+  if (!Array.isArray(details.accepted) || !Array.isArray(details.rejected)) return null;
+  return { accepted: details.accepted, rejected: details.rejected };
+}
+
 export function sanitizeEmailProviderError(error: unknown): string {
   let message = error instanceof Error ? error.message : String(error);
   for (const secret of [
@@ -53,6 +100,7 @@ async function deliverEmail(params: {
   success: boolean;
   status: 'delivered' | 'accepted' | 'failed';
   providerMessageId?: string;
+  providerResponse?: string;
   error?: string;
 }> {
   try {
@@ -72,11 +120,18 @@ async function deliverEmail(params: {
         subject: params.subject,
         html: params.html,
       });
+      const recipientResult = inspectSmtpRecipientAcceptance(
+        params.to,
+        result.accepted,
+        result.rejected
+      );
 
       return {
-        success: true,
-        status: 'accepted',
+        success: !recipientResult.error,
+        status: recipientResult.error ? 'failed' : 'accepted',
         providerMessageId: result.messageId,
+        providerResponse: recipientResult.providerResponse,
+        error: recipientResult.error,
       };
     }
 
@@ -123,6 +178,23 @@ async function deliverEmail(params: {
       providerMessageId: response.data?.id,
     };
   } catch (error: unknown) {
+    const smtpRecipients = getSmtpErrorRecipientLists(error);
+    if (smtpRecipients) {
+      const recipientResult = inspectSmtpRecipientAcceptance(
+        params.to,
+        smtpRecipients.accepted,
+        smtpRecipients.rejected
+      );
+      const message =
+        recipientResult.error || sanitizeEmailProviderError(error);
+      console.error(`[Email] ${emailProvider || 'Provider'} delivery failed: ${message}`);
+      return {
+        success: false,
+        status: 'failed',
+        providerResponse: recipientResult.providerResponse,
+        error: message,
+      };
+    }
     const message = sanitizeEmailProviderError(error);
     console.error(`[Email] ${emailProvider || 'Provider'} delivery failed: ${message}`);
     return {
@@ -433,6 +505,7 @@ export async function sendRenderedEmail(params: {
   success: boolean;
   status: 'delivered' | 'accepted' | 'failed';
   providerMessageId?: string;
+  providerResponse?: string;
   error?: string;
 }> {
   if (isBlockedNotificationRecipient(params.to)) {

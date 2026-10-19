@@ -222,8 +222,11 @@ export default function App() {
     const result: PaidReceiptNotificationResult = {
       recipientEmail: data.job.recipientEmail,
       notificationJobId: data.job.id,
+      templateId: data.job.templateId || null,
+      templateVersion: data.job.templateVersion ?? null,
       status: data.job.status,
       errorMessage: data.job.errorMessage || null,
+      providerResponse: data.job.providerResponse || null,
       attemptCount: data.job.attemptCount,
       canRetry: data.job.attemptCount < 5 && data.job.status === 'failed',
     };
