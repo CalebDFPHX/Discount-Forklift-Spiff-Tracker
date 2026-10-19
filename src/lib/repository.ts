@@ -2153,12 +2153,24 @@ export const Repository = {
       memoryStore.emailJobs.push(job);
     }
 
-    // Dispatch queued delivery attempts strictly AFTER transaction commit
-    for (const job of createdJobs) {
-      await this.dispatchJob(job.id).catch((err) =>
-        console.error('[NotificationWorker] Result email dispatch error:', err)
-      );
-    }
+    // Dispatch all recipients independently after commit so a slow email cannot delay another.
+    await Promise.all(
+      createdJobs.map(async (job) => {
+        try {
+          const result = await this.dispatchJob(job.id);
+          if (result.status === 'failed') {
+            console.error(
+              `[NotificationWorker] ${job.templateId || 'Decision'} email failed for ${job.recipientRole} ${job.recipientEmail}: ${result.errorMessage || 'Unknown delivery error.'}`
+            );
+          }
+        } catch (err) {
+          console.error(
+            `[NotificationWorker] ${job.templateId || 'Decision'} email dispatch error for ${job.recipientRole} ${job.recipientEmail}:`,
+            err
+          );
+        }
+      })
+    );
 
     return sub;
   },
