@@ -1050,6 +1050,15 @@ app.get('/api/admin/contacts', requireAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/admin/active-notification-contacts', requireAdmin, async (req, res) => {
+  try {
+    const contacts = await Repository.getConfiguredActiveContacts();
+    res.json({ contacts });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/admin/contacts', requireAdmin, async (req, res) => {
   try {
     const { name, email, role, branch, isDefaultAccounting } = req.body;
@@ -1195,7 +1204,7 @@ app.get('/api/admin/settings', requireAdmin, async (req, res) => {
   try {
     const recipientEmail = await Repository.getSetting(
       'notification_recipient_email',
-      'caleb@discountforkliftphoenix.com'
+      ''
     );
     res.json({ notificationRecipientEmail: recipientEmail });
   } catch (err: any) {

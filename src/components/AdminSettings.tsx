@@ -27,6 +27,9 @@ interface AdminSettingsProps {
 
 export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
   const [recipientEmail, setRecipientEmail] = useState('');
+  const [contacts, setContacts] = useState<
+    Array<{ id: string; name: string; email: string; role: string; branch?: string | null }>
+  >([]);
   const [emailJobs, setEmailJobs] = useState<EmailJob[]>([]);
   const [statusInfo, setStatusInfo] = useState<any>(null);
   const [isSavingSettings, setIsSavingSettings] = useState(false);
@@ -77,13 +80,27 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
 
   const loadData = async () => {
     try {
-      const [settingsRes, jobsRes, statusRes] = await Promise.all([
+      const [settingsRes, jobsRes, statusRes, contactsRes] = await Promise.all([
         adminFetch('/api/admin/settings').then((r) => r.json()),
         adminFetch('/api/admin/email-jobs').then((r) => r.json()),
         adminFetch('/api/admin/status').then((r) => r.json()),
+        adminFetch('/api/admin/active-notification-contacts')
+          .then((r) => r.json())
+          .catch(() => ({ contacts: [] })),
       ]);
 
-      setRecipientEmail(settingsRes.notificationRecipientEmail || 'caleb@discountforkliftphoenix.com');
+      const activeApprovers = (contactsRes.contacts || []).filter(
+        (contact: { role: string }) => contact.role === 'Approving Manager'
+      );
+      const savedRecipient = settingsRes.notificationRecipientEmail || '';
+      setRecipientEmail(
+        activeApprovers.some(
+          (contact: { email: string }) => contact.email.toLowerCase() === savedRecipient.toLowerCase()
+        )
+          ? savedRecipient
+          : ''
+      );
+      setContacts(activeApprovers);
       setEmailJobs(jobsRes.jobs || []);
       setStatusInfo(statusRes || null);
     } catch (err) {
@@ -177,6 +194,12 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
         return (
           <span className="text-rose-300 bg-rose-950/60 border border-rose-800 px-2 py-0.5 rounded text-[11px] font-semibold">
             failed
+          </span>
+        );
+      case 'cancelled':
+        return (
+          <span className="text-gray-300 bg-gray-800 border border-gray-600 px-2 py-0.5 rounded text-[11px] font-semibold">
+            cancelled
           </span>
         );
       default:
@@ -389,11 +412,11 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
               <div className="flex items-center space-x-2">
                 <h3 className="text-sm font-bold text-white">Manager Notification Recipient Address</h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#1e1e1e] border border-[#444444] font-mono text-[#95EA00]">
-                  {recipientEmail || 'caleb@discountforkliftphoenix.com'}
+                  {recipientEmail || 'No active contact selected'}
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5">
-                Destination email for immediate office alerts when a sales rep submits a new spiff claim
+                Active manager used as backup for branch-based submission alerts
               </p>
             </div>
           </div>
@@ -412,72 +435,41 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
         {openSections.recipientEmail && (
           <div className="p-5 sm:p-6 border-t border-[#383838] space-y-4">
             <p className="text-xs text-gray-300">
-              The primary manager email address that receives instant notifications whenever a sales representative submits a spiff request.
+              Choose the active Approving Manager used when no branch-specific manager contact is found. Submission alerts are otherwise routed to the matching branch.
             </p>
 
             <form onSubmit={handleSaveEmail} className="max-w-xl space-y-3.5">
               <div>
                 <label className="block text-xs font-semibold text-gray-200 mb-1.5">
-                  Choose Recipient / Routing Mode:
+                  Choose an Active Contact:
                 </label>
                 <select
+                  value={contacts.some((contact) => contact.email.toLowerCase() === recipientEmail.toLowerCase())
+                    ? recipientEmail
+                    : ''}
                   onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === 'dallas_approver') {
-                      setRecipientEmail('dallas.manager@discountforkliftphoenix.com');
-                    } else if (val === 'phoenix_approver') {
-                      setRecipientEmail('marcus.vance@discountforkliftphoenix.com');
-                    } else if (val === 'dallas_gm') {
-                      setRecipientEmail('carlos.morales@discountforkliftphoenix.com');
-                    } else if (val === 'phoenix_gm') {
-                      setRecipientEmail('sarah.connor@discountforkliftphoenix.com');
-                    } else if (val === 'corporate_admin') {
-                      setRecipientEmail('caleb@discountforkliftphoenix.com');
-                    }
+                    setRecipientEmail(e.target.value);
                   }}
                   className="w-full bg-[#1e1e1e] border border-[#555555] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
                 >
-                  <option value="branch_approver">
-                    Branch Approving Manager (Auto-routed: Dallas Rep ➔ Dallas Approving Manager, Phoenix ➔ Phoenix)
-                  </option>
-                  <option value="dallas_approver">
-                    Dallas Approving Manager (Alex Rivera — dallas.manager@discountforkliftphoenix.com)
-                  </option>
-                  <option value="phoenix_approver">
-                    Phoenix Approving Manager (Marcus Vance — marcus.vance@discountforkliftphoenix.com)
-                  </option>
-                  <option value="dallas_gm">
-                    Dallas General Manager (Carlos Morales — carlos.morales@discountforkliftphoenix.com)
-                  </option>
-                  <option value="phoenix_gm">
-                    Phoenix General Manager (Sarah Connor — sarah.connor@discountforkliftphoenix.com)
-                  </option>
-                  <option value="corporate_admin">
-                    Corporate Office Administrator (caleb@discountforkliftphoenix.com)
-                  </option>
-                  <option value="custom">
-                    Custom Email Address
-                  </option>
+                  <option value="">Select an active Approving Manager</option>
+                  {contacts.map((contact) => (
+                    <option key={contact.id} value={contact.email}>
+                      {contact.name} — {contact.role}{contact.branch ? ` (${contact.branch})` : ''}
+                    </option>
+                  ))}
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-200 mb-1">
-                  Manager Notification Email
-                </label>
-                <input
-                  type="email"
-                  value={recipientEmail}
-                  onChange={(e) => setRecipientEmail(e.target.value)}
-                  className="w-full bg-[#1e1e1e] border border-[#444444] rounded-lg px-3 py-2 text-xs text-white font-mono focus:bg-[#181818] focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
-                  required
-                />
+                {contacts.length === 0 && (
+                  <p className="mt-2 text-xs text-amber-200">
+                    No active Approving Manager contacts are configured in Neon. Add an active manager in Notifications &amp; Contacts to make one selectable here.
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center space-x-3 pt-1">
                 <button
                   type="submit"
-                  disabled={isSavingSettings}
+                  disabled={isSavingSettings || !recipientEmail}
                   className="px-4 py-2 bg-[#A559BD] hover:bg-[#934da9] text-white text-xs font-bold rounded-lg shadow-sm transition-colors"
                 >
                   {isSavingSettings ? 'Saving...' : 'Update Recipient Email'}
@@ -498,7 +490,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
                 <span>Multi-Step Notification Routing Policy:</span>
               </span>
               <p className="text-[11px] text-gray-400 leading-relaxed">
-                When a sales rep (e.g. from Dallas) submits a spiff claim, the first notification is routed to the <strong>Approving Manager</strong>. Once approved or denied, completion emails are automatically dispatched to the <strong>sales rep</strong>, the <strong>location general manager</strong>, and <strong>accounting</strong>.
+                Submission alerts are sent to the active Approving Manager for the rep’s branch, using the selected active manager only when no branch match is configured. Decision results follow the recipient rules shown in the Email Templates section.
               </p>
             </div>
           </div>

@@ -191,7 +191,7 @@ export const emailNotificationJobs = pgTable(
     recipientEmail: varchar('recipient_email', { length: 255 }).notNull(),
     recipientName: varchar('recipient_name', { length: 255 }),
     recipientRole: varchar('recipient_role', { length: 64 }),
-    status: varchar('status', { length: 32 }).default('queued').notNull(), // 'queued', 'processing', 'accepted', 'delivered', 'failed', 'bounced', 'simulated'
+    status: varchar('status', { length: 32 }).default('queued').notNull(), // 'queued', 'processing', 'accepted', 'delivered', 'failed', 'bounced', 'simulated', 'cancelled'
     attemptCount: integer('attempt_count').default(0).notNull(),
     lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
     nextRetryAt: timestamp('next_retry_at', { withTimezone: true }),

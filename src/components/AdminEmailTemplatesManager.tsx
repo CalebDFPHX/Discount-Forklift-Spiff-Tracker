@@ -52,7 +52,7 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
   const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const [testEmail, setTestEmail] = useState<string>('caleb@discountforkliftphoenix.com');
+  const [testEmail, setTestEmail] = useState<string>('');
   const [isSendingTest, setIsSendingTest] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<{
     success: boolean;
@@ -73,7 +73,7 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
     spiff_denied: 'rep_gm_accounting',
   });
   const [contacts, setContacts] = useState<Array<{ id: string; name: string; email: string; role: string; branch?: string }>>([]);
-  const [selectedTestContactKey, setSelectedTestContactKey] = useState<string>('dallas_approver');
+  const [selectedTestContactKey, setSelectedTestContactKey] = useState<string>('custom');
 
   // Load all templates and contacts
   const loadTemplates = async () => {
@@ -81,13 +81,13 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
     try {
       const [tplRes, contactsRes] = await Promise.all([
         adminFetch('/api/admin/email-templates').then((r) => r.json()),
-        adminFetch('/api/admin/contacts')
+        adminFetch('/api/admin/active-notification-contacts')
           .then((r) => r.json())
           .catch(() => ({ contacts: [] })),
       ]);
 
       if (contactsRes.contacts) {
-        setContacts(contactsRes.contacts);
+        setContacts(contactsRes.contacts.filter((contact: { isActive?: boolean }) => contact.isActive));
       }
 
       if (tplRes.templates) {
@@ -425,12 +425,13 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
                     <option value="approving_manager_branch">
                       Approving Manager (Location-Based: e.g. Dallas Rep ➔ Dallas Approving Manager) [Recommended]
                     </option>
-                    <option value="approving_manager_alex">
-                      Approving Manager: Alex Rivera (Dallas Branch — dallas.manager@discountforkliftphoenix.com)
-                    </option>
-                    <option value="approving_manager_marcus">
-                      Approving Manager: Marcus Vance (Phoenix Main Yard — marcus.vance@discountforkliftphoenix.com)
-                    </option>
+                    {contacts
+                      .filter((contact) => contact.role === 'Approving Manager')
+                      .map((contact) => (
+                        <option key={contact.id} value={`approving_manager_contact:${contact.id}`}>
+                          Approving Manager: {contact.name} ({contact.branch || contact.email})
+                        </option>
+                      ))}
                     <option value="location_gm">
                       Location General Manager (Auto-routed by Sales Rep Branch)
                     </option>
@@ -511,7 +512,7 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
         <div className="bg-[#242424] border border-[#383838] rounded-lg p-3 text-xs space-y-2">
           <div className="flex items-center space-x-2 font-bold text-white text-[11px] uppercase tracking-wide">
             <span className="w-2 h-2 rounded-full bg-[#95EA00]" />
-            <span>Workflow Demonstration (e.g. Dallas Branch):</span>
+            <span>Workflow Demonstration:</span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] text-gray-300">
@@ -520,7 +521,7 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
                 <span>1. Spiff Submission Alert</span>
               </div>
               <p className="text-gray-400 text-[10px] leading-relaxed">
-                When a <strong>Dallas sales rep</strong> submits a spiff request, the first email is sent directly to the <strong>Approving Manager</strong> (e.g. Alex Rivera, Dallas Branch Approving Manager) for verification.
+                When a sales rep submits a spiff request, the alert is sent to an active <strong>Approving Manager</strong> contact matching the rep’s branch, or another active Approving Manager if no branch match exists.
               </p>
             </div>
 
@@ -879,36 +880,29 @@ export const AdminEmailTemplatesManager: React.FC<AdminEmailTemplatesManagerProp
               onChange={(e) => {
                 const val = e.target.value;
                 setSelectedTestContactKey(val);
-                if (val === 'dallas_approver') {
-                  setTestEmail('dallas.manager@discountforkliftphoenix.com');
+                const contact = contacts.find((item) => item.id === val);
+                if (contact) {
+                  setTestEmail(contact.email);
                   setPreviewRole('admin');
-                } else if (val === 'dallas_gm') {
-                  setTestEmail('carlos.morales@discountforkliftphoenix.com');
+                } else if (val === 'custom') {
+                  setTestEmail('');
                   setPreviewRole('admin');
-                } else if (val === 'phoenix_approver') {
-                  setTestEmail('marcus.vance@discountforkliftphoenix.com');
-                  setPreviewRole('admin');
-                } else if (val === 'phoenix_gm') {
-                  setTestEmail('sarah.connor@discountforkliftphoenix.com');
-                  setPreviewRole('admin');
-                } else if (val === 'accounting') {
-                  setTestEmail('accounting@discountforkliftphoenix.com');
-                  setPreviewRole('admin');
-                } else if (val === 'dallas_rep') {
-                  setTestEmail('jake.thompson@discountforkliftphoenix.com');
-                  setPreviewRole('rep');
                 }
               }}
               className="bg-[#1e1e1e] border border-[#555555] rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
             >
-              <option value="dallas_approver">Dallas Approving Manager (Alex Rivera)</option>
-              <option value="dallas_gm">Dallas General Manager (Carlos Morales)</option>
-              <option value="phoenix_approver">Phoenix Approving Manager (Marcus Vance)</option>
-              <option value="phoenix_gm">Phoenix General Manager (Sarah Connor)</option>
-              <option value="accounting">Accounting Payroll Office</option>
-              <option value="dallas_rep">Dallas Sales Rep (Jake Thompson)</option>
-              <option value="custom">Custom Test Recipient Email</option>
+              <option value="custom">Enter a custom test email</option>
+              {contacts.map((contact) => (
+                <option key={contact.id} value={contact.id}>
+                  {contact.name} — {contact.role} ({contact.email})
+                </option>
+              ))}
             </select>
+            {contacts.length === 0 && (
+              <p className="text-[11px] text-amber-200">
+                No active notification contacts are configured in Neon. Add active contacts in Notifications &amp; Contacts to select one here.
+              </p>
+            )}
 
             <div className="sm:col-span-2 flex items-center gap-2">
               <input

@@ -128,6 +128,14 @@ The app can send notifications through Gmail SMTP or Resend. Gmail is selected w
 
 For local development, use the same two variables in the ignored local `.env` file and restart the server. Gmail is intended for low-volume notifications and has sending limits; Google Workspace administrators may also restrict SMTP or App Password use.
 
+Notification recipient menus are populated from active contacts configured in Neon. If no active contacts are configured, add them in **Notifications & Contacts**; the app will not substitute sample or fallback recipients.
+
+To safely clean the retired placeholder recipients from an existing Neon database, configure `DATABASE_URL` in the local ignored `.env` file or the shell environment, then run:
+```bash
+npm run cleanup:placeholder-recipients
+```
+The script deactivates only contacts matching the four retired addresses, removes their IDs from sales-rep General Manager assignments, clears the notification-recipient setting if it matches, and cancels queued, failed, or processing email jobs to those addresses. It preserves historical submissions, audit records, and sent email jobs.
+
 New-submission notification emails include **Approve** and **Deny** links for the routed approving manager. The links are signed with `AUTH_SECRET`, expire after 7 days, and work only while the request is pending; the first decision wins. Clicking a link immediately records the decision without a separate sign-in or confirmation. Denial actions are recorded with the reason “Denied via email action.” Treat these links as sensitive and do not forward them.
 
 The **Spiff Approved Result** goes to the submitting sales rep. Their assigned active General Manager(s) receive a separate **Spiff Approved Paid Receipt** with a **Mark as Paid** link; it requires no sign-in, expires after 7 days, and only works while the request is approved. Anyone with that link can mark the request paid, so keep the email private. Email link scanners may open action links automatically. The **Spiff Denied Result** continues to go to the rep and selected recipients.

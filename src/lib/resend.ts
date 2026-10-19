@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import nodemailer from 'nodemailer';
+import { isBlockedNotificationRecipient } from './recipientPolicy.js';
 
 const resendApiKey = process.env.RESEND_API_KEY;
 const fromEmail = process.env.RESEND_FROM_EMAIL || 'notifications@discountforkliftphoenix.com';
@@ -145,6 +146,14 @@ export async function sendSpiffSubmissionEmail(payload: SpiffNotificationPayload
   providerMessageId?: string;
   error?: string;
 }> {
+  if (isBlockedNotificationRecipient(payload.recipientEmail)) {
+    return {
+      success: false,
+      status: 'failed',
+      error: 'This recipient address is not eligible for notifications.',
+    };
+  }
+
   if (!isEmailConfigured) {
     if (hasGmailConfiguration) {
       return {
@@ -260,6 +269,14 @@ export async function sendSpiffDecisionResultEmail(
   providerMessageId?: string;
   error?: string;
 }> {
+  if (isBlockedNotificationRecipient(targetRecipient.email)) {
+    return {
+      success: false,
+      status: 'failed',
+      error: 'This recipient address is not eligible for notifications.',
+    };
+  }
+
   if (!isEmailConfigured) {
     if (hasGmailConfiguration) {
       return {
@@ -392,6 +409,14 @@ export async function sendRenderedEmail(params: {
   providerMessageId?: string;
   error?: string;
 }> {
+  if (isBlockedNotificationRecipient(params.to)) {
+    return {
+      success: false,
+      status: 'failed',
+      error: 'This recipient address is not eligible for notifications.',
+    };
+  }
+
   if (!isEmailConfigured) {
     const errorMsg = hasGmailConfiguration
       ? 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.'

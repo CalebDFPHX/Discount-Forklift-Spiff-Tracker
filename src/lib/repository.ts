@@ -1,11 +1,15 @@
 import { db, schema, isNeonConfigured } from '../db/index.js';
-import { eq, desc, asc, and, gte, lte, lt, like, or, sql, isNull } from 'drizzle-orm';
+import { eq, desc, asc, and, gte, lte, lt, like, or, sql, isNull, inArray } from 'drizzle-orm';
 import { sendSpiffSubmissionEmail, sendSpiffDecisionResultEmail, sendRenderedEmail } from './resend.js';
 import { createEmailDecisionToken } from './emailDecisionTokens.js';
 import { formatDollars, validateSerialSuffix } from './formatters.js';
 import { formatPhoenixDate, formatPhoenixDateTime, getPhoenixDateRangeUtcBounds } from './timezone.js';
 import { hashPassword, verifyPassword, validatePasswordStrength } from './auth.js';
 import { deleteBlobPhoto } from './blob.js';
+import {
+  BLOCKED_NOTIFICATION_RECIPIENT_EMAILS,
+  isBlockedNotificationRecipient,
+} from './recipientPolicy.js';
 import {
   EmailTemplate,
   EmailTemplateVersion,
@@ -195,7 +199,7 @@ export interface EmailJob {
   recipientEmail: string;
   recipientName?: string | null;
   recipientRole?: string | null;
-  status: 'queued' | 'processing' | 'accepted' | 'delivered' | 'failed' | 'bounced' | 'simulated';
+  status: 'queued' | 'processing' | 'accepted' | 'delivered' | 'failed' | 'bounced' | 'simulated' | 'cancelled';
   attemptCount: number;
   lastAttemptAt?: string | null;
   nextRetryAt?: string | null;
@@ -217,50 +221,6 @@ export interface EmailJob {
 
 class InMemoryStore {
   contacts: NotificationContact[] = [
-    {
-      id: 'cnt_marcus',
-      name: 'Marcus Vance',
-      email: 'marcus.vance@discountforkliftphoenix.com',
-      role: 'Approving Manager',
-      branch: 'Phoenix - Main Yard',
-      isDefaultAccounting: false,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: 'cnt_alex',
-      name: 'Alex Rivera',
-      email: 'dallas.manager@discountforkliftphoenix.com',
-      role: 'Approving Manager',
-      branch: 'Dallas Branch',
-      isDefaultAccounting: false,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: 'cnt_sarah',
-      name: 'Sarah Connor',
-      email: 'sarah.connor@discountforkliftphoenix.com',
-      role: 'General Manager',
-      branch: 'Phoenix - Main Yard',
-      isDefaultAccounting: false,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
-    {
-      id: 'cnt_carlos',
-      name: 'Carlos Morales',
-      email: 'carlos.morales@discountforkliftphoenix.com',
-      role: 'General Manager',
-      branch: 'Dallas Branch',
-      isDefaultAccounting: false,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    },
     {
       id: 'cnt_robert',
       name: 'Robert Davis',
@@ -290,7 +250,7 @@ class InMemoryStore {
       name: 'Jake Thompson',
       email: 'jake.thompson@discountforkliftphoenix.com',
       branch: 'Dallas Branch',
-      assignedGmIds: 'cnt_carlos',
+      assignedGmIds: null,
       isActive: true,
       displayOrder: 1,
       createdAt: new Date().toISOString(),
@@ -301,7 +261,7 @@ class InMemoryStore {
       name: 'Caleb Vance',
       email: 'caleb@discountforkliftphoenix.com',
       branch: 'Phoenix - Main Yard',
-      assignedGmIds: 'cnt_sarah',
+      assignedGmIds: null,
       isActive: true,
       displayOrder: 2,
       createdAt: new Date().toISOString(),
@@ -312,7 +272,7 @@ class InMemoryStore {
       name: 'Travis Miller',
       email: 'travis.miller@discountforkliftphoenix.com',
       branch: 'Phoenix - Main Yard',
-      assignedGmIds: 'cnt_sarah',
+      assignedGmIds: null,
       isActive: true,
       displayOrder: 3,
       createdAt: new Date().toISOString(),
@@ -359,7 +319,7 @@ class InMemoryStore {
   attachments: Attachment[] = [];
   auditEvents: AuditEvent[] = [];
   settings: Record<string, string> = {
-    notification_recipient_email: 'caleb@discountforkliftphoenix.com',
+    notification_recipient_email: '',
     initial_admin_email: 'caleb@discountforkliftphoenix.com',
   };
   branches: Branch[] = [
@@ -728,22 +688,46 @@ export const Repository = {
           .select()
           .from(schema.notificationContacts)
           .orderBy(asc(schema.notificationContacts.name));
-        return rows.map((c) => ({
+        return rows.filter((c) => !isBlockedNotificationRecipient(c.email)).map((c) => ({
           ...c,
           role: c.role as any,
           createdAt: c.createdAt.toISOString(),
           updatedAt: c.updatedAt.toISOString(),
         }));
       } catch (err) {
+        if (!isMemoryModeAllowed()) throw err;
         console.warn('Neon query error, falling back to memory store:', err);
       }
     }
-    return [...memoryStore.contacts].sort((a, b) => a.name.localeCompare(b.name));
+    return memoryStore.contacts
+      .filter((contact) => !isBlockedNotificationRecipient(contact.email))
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
 
   async getActiveContacts(): Promise<NotificationContact[]> {
     const all = await this.getAllContacts();
     return all.filter((c) => c.isActive);
+  },
+
+  async getConfiguredActiveContacts(): Promise<NotificationContact[]> {
+    if (!this.isLiveDatabaseConnected() || !db) {
+      throw new Error('Neon must be configured to load administrator-managed notification contacts.');
+    }
+
+    const rows = await db
+      .select()
+      .from(schema.notificationContacts)
+      .where(eq(schema.notificationContacts.isActive, true))
+      .orderBy(asc(schema.notificationContacts.name));
+
+    return rows
+      .filter((contact) => !isBlockedNotificationRecipient(contact.email))
+      .map((contact) => ({
+        ...contact,
+        role: contact.role as NotificationContact['role'],
+        createdAt: contact.createdAt.toISOString(),
+        updatedAt: contact.updatedAt.toISOString(),
+      }));
   },
 
   async createContact(input: {
@@ -755,6 +739,9 @@ export const Repository = {
   }): Promise<NotificationContact> {
     if (!input.name.trim()) throw new Error('Contact name is required.');
     if (!input.email.trim()) throw new Error('Contact email is required.');
+    if (isBlockedNotificationRecipient(input.email)) {
+      throw new Error('This email address is not eligible to receive notifications.');
+    }
 
     const now = new Date().toISOString();
     const newContact: NotificationContact = {
@@ -797,6 +784,9 @@ export const Repository = {
       isActive: boolean;
     }>
   ): Promise<NotificationContact> {
+    if (updates.email && isBlockedNotificationRecipient(updates.email)) {
+      throw new Error('This email address is not eligible to receive notifications.');
+    }
     const now = new Date().toISOString();
     if (this.isLiveDatabaseConnected() && db) {
       const [updatedContact] = await db
@@ -1261,6 +1251,34 @@ export const Repository = {
     if (!spiff) throw new Error('Selected spiff program does not exist.');
     if (!spiff.isActive) throw new Error('Selected spiff program is not currently active.');
 
+    const contacts = await this.getActiveContacts();
+    const repBranch = (rep.branch || '').toLowerCase().trim();
+    const branchApprover = contacts.find((contact) => {
+      const branch = contact.branch?.toLowerCase() || '';
+      return (
+        contact.role === 'Approving Manager' &&
+        Boolean(repBranch && branch) &&
+        (branch.includes(repBranch) || repBranch.includes(branch))
+      );
+    });
+    const configuredApproverEmail = (
+      await this.getSetting('notification_recipient_email', '')
+    ).trim().toLowerCase();
+    const configuredApprover = contacts.find(
+      (contact) =>
+        contact.role === 'Approving Manager' &&
+        contact.email.trim().toLowerCase() === configuredApproverEmail
+    );
+    const approver =
+      branchApprover ||
+      configuredApprover ||
+      contacts.find((contact) => contact.role === 'Approving Manager');
+    if (!approver) {
+      throw new Error(
+        'No active Approving Manager contacts are configured. Ask an administrator to add an active manager contact before submitting.'
+      );
+    }
+
     // 3. Spiff amount is strictly calculated on server from the database record snapshot
     const serverAmountCents = spiff.amountCents;
 
@@ -1321,43 +1339,9 @@ export const Repository = {
     };
 
     // 5. Persistent Email Notification Job creation
-    // Route initial submission alert to the designated Approving Manager (e.g. Dallas Approving Manager for Dallas rep)
-    let recipientEmail = await this.getSetting(
-      'notification_recipient_email',
-      'caleb@discountforkliftphoenix.com'
-    );
-    let recipientName = 'Approving Manager';
-    let recipientRole = 'Approving Manager';
-
-    // 1. Check if rep has a branch and route to that branch's Approving Manager
-    const repBranch = (rep.branch || '').toLowerCase().trim();
-    if (repBranch) {
-      const allContacts = await this.getAllContacts();
-      const branchApprover = allContacts.find(
-        (c) =>
-          c.isActive &&
-          c.role === 'Approving Manager' &&
-          c.branch &&
-          (c.branch.toLowerCase().includes(repBranch) || repBranch.includes(c.branch.toLowerCase()))
-      );
-      if (branchApprover) {
-        recipientEmail = branchApprover.email;
-        recipientName = branchApprover.name;
-        recipientRole = 'Approving Manager';
-      }
-    }
-
-    // 2. If not found by branch, check for any active Approving Manager
-    if (recipientName === 'Approving Manager') {
-      const allContacts = await this.getAllContacts();
-      const generalApprover = allContacts.find(
-        (c) => c.isActive && c.role === 'Approving Manager'
-      );
-      if (generalApprover) {
-        recipientEmail = generalApprover.email;
-        recipientName = generalApprover.name;
-      }
-    }
+    const recipientEmail = approver.email;
+    const recipientName = approver.name;
+    const recipientRole = approver.role;
 
     const jobKey = `job_notify_${submissionId}`;
     const baseUrl = input.appUrl || 'http://localhost:3000';
@@ -1901,7 +1885,11 @@ export const Repository = {
 
     for (const r of isApprove ? [] : input.recipients) {
       const cleanEmail = (r.email || '').trim().toLowerCase();
-      if (!cleanEmail || !cleanEmail.includes('@')) continue;
+      if (
+        !cleanEmail ||
+        !cleanEmail.includes('@') ||
+        isBlockedNotificationRecipient(cleanEmail)
+      ) continue;
 
       // Check if contact matches an active database contact
       const matchedContact = (r as any).contactId
@@ -2384,12 +2372,34 @@ export const Repository = {
         .from(schema.appSettings)
         .where(eq(schema.appSettings.key, key))
         .limit(1);
-      if (rows.length > 0) return rows[0].value;
+      if (rows.length > 0) {
+        const value = rows[0].value;
+        return key === 'notification_recipient_email' && isBlockedNotificationRecipient(value)
+          ? defaultValue
+          : value;
+      }
     }
-    return memoryStore.settings[key] || defaultValue;
+    const value = memoryStore.settings[key] || defaultValue;
+    return key === 'notification_recipient_email' && isBlockedNotificationRecipient(value)
+      ? defaultValue
+      : value;
   },
 
   async setSetting(key: string, value: string, adminUser: string): Promise<void> {
+    if (key === 'notification_recipient_email' && isBlockedNotificationRecipient(value)) {
+      throw new Error('This email address is not eligible to receive notifications.');
+    }
+    if (key === 'notification_recipient_email') {
+      const activeContacts = await this.getActiveContacts();
+      const isManagedApprover = activeContacts.some(
+        (contact) =>
+          contact.role === 'Approving Manager' &&
+          contact.email.trim().toLowerCase() === value.trim().toLowerCase()
+      );
+      if (!isManagedApprover) {
+        throw new Error('Choose an active Approving Manager contact from Neon.');
+      }
+    }
     memoryStore.settings[key] = value;
     if (this.isLiveDatabaseConnected() && db) {
       await db
@@ -2413,7 +2423,50 @@ export const Repository = {
   // ----------------------------------------------------
   // 10. Email Notification Jobs
   // ----------------------------------------------------
+  async suppressBlockedNotificationJobs(): Promise<void> {
+    const now = new Date();
+    if (this.isLiveDatabaseConnected() && db) {
+      await db
+        .update(schema.emailNotificationJobs)
+        .set({
+          status: 'cancelled',
+          errorMessage: 'Cancelled because this recipient address is no longer eligible for notifications.',
+          nextRetryAt: null,
+          lockedAt: null,
+          lockedBy: null,
+          leaseExpiresAt: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            sql`lower(${schema.emailNotificationJobs.recipientEmail}) IN (${sql.join(
+              BLOCKED_NOTIFICATION_RECIPIENT_EMAILS.map((email) => sql`${email}`),
+              sql`, `
+            )})`,
+            inArray(schema.emailNotificationJobs.status, ['queued', 'failed', 'processing'])
+          )
+        );
+    }
+
+    for (const job of memoryStore.emailJobs) {
+      if (
+        isBlockedNotificationRecipient(job.recipientEmail) &&
+        ['queued', 'failed', 'processing'].includes(job.status)
+      ) {
+        job.status = 'cancelled';
+        job.errorMessage =
+          'Cancelled because this recipient address is no longer eligible for notifications.';
+        job.nextRetryAt = null;
+        job.lockedAt = null;
+        job.lockedBy = null;
+        job.leaseExpiresAt = null;
+        job.updatedAt = now.toISOString();
+      }
+    }
+  },
+
   async getEmailJobs(): Promise<EmailJob[]> {
+    await this.suppressBlockedNotificationJobs();
     if (this.isLiveDatabaseConnected() && db) {
       try {
         const rows = await db
@@ -2514,6 +2567,7 @@ export const Repository = {
    */
   async claimJobForDelivery(jobId: string, workerId: string): Promise<EmailJob | null> {
     this.assertDatabaseOrMemoryAllowed();
+    await this.suppressBlockedNotificationJobs();
     const now = new Date();
     const leaseExpires = new Date(Date.now() + 5 * 60 * 1000); // 5-minute lease duration
 
@@ -2533,6 +2587,10 @@ export const Repository = {
           .where(
             and(
               eq(schema.emailNotificationJobs.id, jobId),
+              sql`lower(${schema.emailNotificationJobs.recipientEmail}) NOT IN (${sql.join(
+                BLOCKED_NOTIFICATION_RECIPIENT_EMAILS.map((email) => sql`${email}`),
+                sql`, `
+              )})`,
               lt(schema.emailNotificationJobs.attemptCount, 5),
               or(
                 eq(schema.emailNotificationJobs.status, 'queued'),
@@ -2594,6 +2652,7 @@ export const Repository = {
     // In-memory atomic lease claiming
     const mem = memoryStore.emailJobs.find((j) => j.id === jobId);
     if (!mem) return null;
+    if (isBlockedNotificationRecipient(mem.recipientEmail)) return null;
     if (mem.attemptCount >= 5) return null;
 
     const isLeaseExpired =
@@ -2619,6 +2678,7 @@ export const Repository = {
    */
   async claimEligibleJobs(limit: number = 25, workerId: string): Promise<EmailJob[]> {
     this.assertDatabaseOrMemoryAllowed();
+    await this.suppressBlockedNotificationJobs();
     const now = new Date();
     const leaseExpires = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -2633,6 +2693,10 @@ export const Repository = {
               OR (status = 'processing' AND (lease_expires_at IS NULL OR lease_expires_at < ${now}))
             )
             AND attempt_count < 5
+            AND lower(recipient_email) NOT IN (${sql.join(
+              BLOCKED_NOTIFICATION_RECIPIENT_EMAILS.map((email) => sql`${email}`),
+              sql`, `
+            )})
             AND (next_retry_at IS NULL OR next_retry_at <= ${now})
             ORDER BY created_at ASC
             LIMIT ${limit}
@@ -2689,6 +2753,7 @@ export const Repository = {
     const claimed: EmailJob[] = [];
     for (const j of memoryStore.emailJobs) {
       if (claimed.length >= limit) break;
+      if (isBlockedNotificationRecipient(j.recipientEmail)) continue;
       if (j.attemptCount >= 5) continue;
       if (j.nextRetryAt && new Date(j.nextRetryAt) > now) continue;
 
@@ -2719,6 +2784,35 @@ export const Repository = {
    */
   async executeJobDelivery(job: EmailJob, appUrl?: string): Promise<EmailJob> {
     const now = new Date();
+    if (isBlockedNotificationRecipient(job.recipientEmail)) {
+      job.status = 'cancelled';
+      job.errorMessage = 'Cancelled because this recipient address is no longer eligible for notifications.';
+      job.nextRetryAt = null;
+      job.lockedBy = null;
+      job.lockedAt = null;
+      job.leaseExpiresAt = null;
+      job.updatedAt = now.toISOString();
+
+      if (this.isLiveDatabaseConnected() && db) {
+        await db
+          .update(schema.emailNotificationJobs)
+          .set({
+            status: job.status,
+            errorMessage: job.errorMessage,
+            nextRetryAt: null,
+            lockedBy: null,
+            lockedAt: null,
+            leaseExpiresAt: null,
+            updatedAt: now,
+          })
+          .where(eq(schema.emailNotificationJobs.id, job.id));
+      }
+
+      const memoryJob = memoryStore.emailJobs.find((storedJob) => storedJob.id === job.id);
+      if (memoryJob) Object.assign(memoryJob, job);
+      return job;
+    }
+
     const currentAttempt = job.attemptCount;
     const baseUrl = appUrl || CANONICAL_APP_URL || 'http://localhost:3000';
 
@@ -3349,34 +3443,6 @@ export const Repository = {
       isDefaultAccounting: boolean;
     }> = [
       {
-        name: 'Sarah Connor',
-        email: 'sarah.connor@discountforkliftphoenix.com',
-        role: 'General Manager',
-        branch: 'Phoenix - Main Yard',
-        isDefaultAccounting: false,
-      },
-      {
-        name: 'Marcus Vance',
-        email: 'marcus.vance@discountforkliftphoenix.com',
-        role: 'Approving Manager',
-        branch: 'Phoenix - Main Yard',
-        isDefaultAccounting: false,
-      },
-      {
-        name: 'Carlos Morales',
-        email: 'carlos.morales@discountforkliftphoenix.com',
-        role: 'General Manager',
-        branch: 'Dallas Branch',
-        isDefaultAccounting: false,
-      },
-      {
-        name: 'Alex Rivera',
-        email: 'dallas.manager@discountforkliftphoenix.com',
-        role: 'Approving Manager',
-        branch: 'Dallas Branch',
-        isDefaultAccounting: false,
-      },
-      {
         name: 'Robert Davis',
         email: 'robert.davis@discountforkliftphoenix.com',
         role: 'General Manager',
@@ -3417,8 +3483,6 @@ export const Repository = {
     }
 
     // 2. Sales Reps with valid email addresses and assigned GMs
-    const gmIdPhoenix = createdContactIds['Sarah Connor'] || '';
-    const gmIdDallas = createdContactIds['Carlos Morales'] || '';
     const gmIdTucson = createdContactIds['Robert Davis'] || '';
 
     const sampleReps = [
@@ -3426,19 +3490,19 @@ export const Repository = {
         name: 'Jake Thompson',
         email: 'jake.thompson@discountforkliftphoenix.com',
         branch: 'Dallas Branch',
-        assignedGmIds: gmIdDallas,
+        assignedGmIds: '',
       },
       {
         name: 'Caleb Vance',
         email: 'caleb@discountforkliftphoenix.com',
         branch: 'Phoenix - Main Yard',
-        assignedGmIds: gmIdPhoenix,
+        assignedGmIds: '',
       },
       {
         name: 'Travis Miller',
         email: 'travis.miller@discountforkliftphoenix.com',
         branch: 'Phoenix - Main Yard',
-        assignedGmIds: gmIdPhoenix,
+        assignedGmIds: '',
       },
       {
         name: 'Marcus Cole',
@@ -3450,7 +3514,7 @@ export const Repository = {
         name: 'David Ortiz',
         email: 'david.ortiz@discountforkliftphoenix.com',
         branch: 'Phoenix - Main Yard',
-        assignedGmIds: gmIdPhoenix,
+        assignedGmIds: '',
       },
     ];
 
