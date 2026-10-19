@@ -49,7 +49,12 @@ app.set('trust proxy', 1);
 
 // Canonical Application URL - Never construct trusted notification links from arbitrary request headers
 const CANONICAL_APP_URL =
-  process.env.APP_URL || process.env.NEXTAUTH_URL || 'https://discountforkliftphoenix.com';
+  process.env.APP_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : undefined) ||
+  process.env.NEXTAUTH_URL ||
+  'https://discount-forklift-spiff-tracker-basxhlwz6-calebdfphxs-projects.vercel.app';
 
 // Middleware for parsing JSON with 12MB limit for direct photo buffers
 app.use(express.json({ limit: '12mb' }));

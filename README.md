@@ -192,7 +192,7 @@ In your Vercel project's **Settings > Environment Variables**, add the following
 | `RESEND_FROM_EMAIL` | Verified sender (when using Resend) |
 | `NOTIFICATION_RECIPIENT_EMAIL` | Office manager email receiving alerts |
 | `BLOB_READ_WRITE_TOKEN` | Generated automatically by Vercel Blob |
-| `APP_URL` | Canonical app URL (e.g. `https://spiffs.discountforklift.com`) |
+| `APP_URL` | Set to `https://discount-forklift-spiff-tracker-basxhlwz6-calebdfphxs-projects.vercel.app` so notification links point to the deployed app |
 | `CRON_SECRET` | Random hex key for securing scheduled cron endpoints |
 
 ---

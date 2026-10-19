@@ -19,7 +19,12 @@ import {
 export type { EmailTemplate, EmailTemplateVersion };
 
 const CANONICAL_APP_URL =
-  process.env.APP_URL || process.env.NEXTAUTH_URL || 'https://discountforkliftphoenix.com';
+  process.env.APP_URL ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : undefined) ||
+  process.env.NEXTAUTH_URL ||
+  'https://discount-forklift-spiff-tracker-basxhlwz6-calebdfphxs-projects.vercel.app';
 
 function renderEmailDecisionButtons(
   baseUrl: string,
