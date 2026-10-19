@@ -497,24 +497,28 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
           )}
         </div>
 
-        {submission.status === 'Approved' && canRecoverPaidReceipt && (
+        {submission.status === 'Approved' && (
           <div className="border-t border-[#383838] bg-[#242424] p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h4 className="text-xs font-bold text-white">Paid Receipt Email</h4>
                 <p className="text-[11px] text-gray-400">
-                  Recover the notification without changing approval or payment status.
+                  {canRecoverPaidReceipt
+                    ? 'Recover the notification without changing approval or payment status.'
+                    : 'Receipt recovery is available only to users with the Administrator role.'}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleRecoverPaidReceipt}
-                disabled={isRecoveringReceipt || isProcessing}
-                className="inline-flex items-center gap-1.5 rounded border border-[#A559BD]/60 bg-[#A559BD]/20 px-3 py-1.5 text-xs font-semibold text-purple-100 disabled:opacity-50"
-              >
-                {isRecoveringReceipt && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {isRecoveringReceipt ? 'Checking / recovering...' : 'Recover receipt'}
-              </button>
+              {canRecoverPaidReceipt && (
+                <button
+                  type="button"
+                  onClick={handleRecoverPaidReceipt}
+                  disabled={isRecoveringReceipt || isProcessing}
+                  className="inline-flex items-center gap-1.5 rounded border border-[#A559BD]/60 bg-[#A559BD]/20 px-3 py-1.5 text-xs font-semibold text-purple-100 disabled:opacity-50"
+                >
+                  {isRecoveringReceipt && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {isRecoveringReceipt ? 'Checking / recovering...' : 'Recover receipt'}
+                </button>
+              )}
             </div>
             {receiptResults.map((receipt) => (
               <div
