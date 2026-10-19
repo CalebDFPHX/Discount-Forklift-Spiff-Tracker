@@ -46,6 +46,34 @@ function renderEmailDecisionButtons(
     </div>`;
 }
 
+function renderEmailPaidButton(
+  baseUrl: string,
+  submissionId: string,
+  managerEmail: string
+): string {
+  const root = baseUrl.replace(/\/+$/, '');
+  const token = createEmailDecisionToken(submissionId, 'paid', managerEmail);
+  return `
+    <div style="max-width:600px;margin:24px auto;padding:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;text-align:center;font-family:Arial,sans-serif;">
+      <a href="${root}/api/email-actions/${token}" style="display:inline-block;padding:12px 24px;background:#15803d;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;">Mark as Paid</a>
+      <p style="margin:12px 0 0;color:#64748b;font-size:11px;">This link records payment immediately, is valid for 7 days, and only works for approved requests. Anyone with access to this email link can use it.</p>
+    </div>`;
+}
+
+function appendEmailActionContent(html: string, actionContent: string): string {
+  const bodyEnd = html.toLowerCase().lastIndexOf('</body>');
+  if (bodyEnd !== -1) {
+    return `${html.slice(0, bodyEnd)}${actionContent}${html.slice(bodyEnd)}`;
+  }
+
+  const documentEnd = html.toLowerCase().lastIndexOf('</html>');
+  if (documentEnd !== -1) {
+    return `${html.slice(0, documentEnd)}${actionContent}${html.slice(documentEnd)}`;
+  }
+
+  return `${html}${actionContent}`;
+}
+
 export interface AdminUser {
   id: string;
   email: string;
@@ -1254,7 +1282,7 @@ export const Repository = {
           recipientEmail,
         )
       : '';
-    const renderedSubmissionHtml = `${rendered.bodyHtml}${actionButtons}`;
+    const renderedSubmissionHtml = appendEmailActionContent(rendered.bodyHtml, actionButtons);
 
     const eventPayloadJson = JSON.stringify({
       requestId: submissionId,
@@ -1796,7 +1824,16 @@ export const Repository = {
         admin_review_url: `${baseUrl}/admin?request=${id}`,
       };
 
-      const rendered = renderEmailTemplate(template, data, isRecipientAdmin);
+      const rendered = renderEmailTemplate(
+        template,
+        data,
+        isRecipientAdmin,
+        rec.role === 'Sales Rep'
+      );
+      const paidButton =
+        isApprove && rec.role === 'General Manager'
+          ? renderEmailPaidButton(baseUrl, id, rec.email)
+          : '';
 
       const emailJob: EmailJob = {
         id: `job_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1812,7 +1849,7 @@ export const Repository = {
         templateId: template.id,
         templateVersion: template.version,
         renderedSubject: rendered.subject,
-        renderedBodyHtml: rendered.bodyHtml,
+        renderedBodyHtml: appendEmailActionContent(rendered.bodyHtml, paidButton),
         eventPayload: eventPayloadJson,
         createdAt: now,
       };
@@ -2501,9 +2538,18 @@ export const Repository = {
             admin_review_url: `${baseUrl}/admin?request=${sub.id}`,
           };
 
-          const rendered = renderEmailTemplate(template, data, isRecipientAdmin);
+          const rendered = renderEmailTemplate(
+            template,
+            data,
+            isRecipientAdmin,
+            job.recipientRole === 'Sales Rep'
+          );
           subject = rendered.subject;
-          html = rendered.bodyHtml;
+          const paidButton =
+            originalDecision === 'Approved' && job.recipientRole === 'General Manager'
+              ? renderEmailPaidButton(baseUrl, sub.id, job.recipientEmail)
+              : '';
+          html = appendEmailActionContent(rendered.bodyHtml, paidButton);
         } else {
           const template = await this.getEmailTemplate('new_submission');
           const data = {

@@ -4,7 +4,7 @@ const EMAIL_DECISION_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 export interface EmailDecisionTokenPayload {
   submissionId: string;
-  decision: 'approve' | 'deny';
+  decision: 'approve' | 'deny' | 'paid';
   approverEmail: string;
   expiresAt: number;
   nonce: string;
@@ -64,7 +64,7 @@ export function verifyEmailDecisionToken(token: string): EmailDecisionTokenPaylo
       payload.submissionId.length === 0 ||
       payload.submissionId.length > 64 ||
       !('decision' in payload) ||
-      (payload.decision !== 'approve' && payload.decision !== 'deny') ||
+      (payload.decision !== 'approve' && payload.decision !== 'deny' && payload.decision !== 'paid') ||
       !('approverEmail' in payload) ||
       typeof payload.approverEmail !== 'string' ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.approverEmail) ||

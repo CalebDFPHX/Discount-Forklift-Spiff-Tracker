@@ -613,6 +613,27 @@ app.get('/api/email-actions/:token', async (req, res) => {
   }
 
   try {
+    if (token.decision === 'paid') {
+      const manager = (await Repository.getAllContacts()).find(
+        (contact) =>
+          contact.isActive &&
+          contact.role === 'General Manager' &&
+          contact.email.trim().toLowerCase() === token.approverEmail
+      );
+      if (!manager) {
+        return res.status(403).type('text/plain').send('This payment link is no longer authorized.');
+      }
+
+      const updated = await Repository.markPaidSubmission(
+        token.submissionId,
+        `Email action (${token.approverEmail})`
+      );
+      return res
+        .status(200)
+        .type('text/plain')
+        .send(`Request ${updated.id} has been marked as paid.`);
+    }
+
     const decisionText = token.decision === 'approve' ? 'approved' : 'denied';
     const updated = await Repository.decideSubmission(
       token.submissionId,

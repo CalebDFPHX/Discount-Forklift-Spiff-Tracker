@@ -248,10 +248,12 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<string, Omit<EmailTemplate, 'update
           <td style="padding: 10px 0; color: #0f172a; font-weight: 600; text-align: right;">{{decision_at}}</td>
         </tr>
       </table>
+      {{#if_manager}}
       <div style="margin-top: 18px; padding: 14px; background-color: #f8fafc; border-left: 4px solid #15803d; border-radius: 4px; font-size: 13px;">
         <strong style="color: #15803d;">Manager Note:</strong>
         <p style="margin: 6px 0 0 0; color: #0f172a;">{{approval_message}}</p>
       </div>
+      {{/if_manager}}
       {{#if_admin}}
       <div style="text-align: center; margin-top: 24px;">
         <a href="{{admin_review_url}}" style="color: #A559BD; font-size: 13px; text-decoration: underline; font-weight: 600;">View Request in Discount Forklift Ledger</a>
@@ -405,6 +407,12 @@ export function validateTemplateContent(
     return { isValid: false, error: 'Malformed conditional block: {{#if_notes}} and {{/if_notes}} tags are unmatched.' };
   }
 
+  const managerOpenCount = (bodyHtml.match(/\{\{#if_manager\}\}/g) || []).length;
+  const managerCloseCount = (bodyHtml.match(/\{\{\/if_manager\}\}/g) || []).length;
+  if (managerOpenCount !== managerCloseCount) {
+    return { isValid: false, error: 'Malformed conditional block: {{#if_manager}} and {{/if_manager}} tags are unmatched.' };
+  }
+
   // 3. Find all {{...}} tokens
   const combined = `${subject} ${bodyHtml}`;
   const matches = combined.match(/\{\{([^{}]+)\}\}/g) || [];
@@ -415,6 +423,8 @@ export function validateTemplateContent(
     '/if_admin',
     '#if_notes',
     '/if_notes',
+    '#if_manager',
+    '/if_manager',
   ]);
 
   for (const match of matches) {
@@ -463,6 +473,19 @@ export function validateTemplateContent(
     }
   }
 
+  const approvalMessageIndex = bodyHtml.indexOf('{{approval_message}}');
+  if (approvalMessageIndex !== -1) {
+    const textBefore = bodyHtml.substring(0, approvalMessageIndex);
+    const lastManagerOpen = textBefore.lastIndexOf('{{#if_manager}}');
+    const lastManagerClose = textBefore.lastIndexOf('{{/if_manager}}');
+    if (lastManagerOpen === -1 || lastManagerOpen < lastManagerClose) {
+      return {
+        isValid: false,
+        error: 'Manager note placeholder {{approval_message}} must be enclosed within an {{#if_manager}}...{{/if_manager}} block so sales representatives do not receive it.',
+      };
+    }
+  }
+
   // 5. Template specific checks
   if (templateId === 'spiff_denied' && !combined.includes('{{denial_reason}}')) {
     return {
@@ -483,7 +506,8 @@ export function validateTemplateContent(
 export function renderEmailTemplate(
   template: { id?: string; subject: string; bodyHtml: string },
   data: Record<string, any>,
-  recipientIsAdmin: boolean
+  recipientIsAdmin: boolean,
+  recipientIsSalesRep = false
 ): { subject: string; bodyHtml: string } {
   let renderedSubject = template.subject;
   let rawBody = template.bodyHtml;
@@ -495,6 +519,16 @@ export function renderEmailTemplate(
     rawBody = rawBody.replace(/\{\{#if_admin\}\}[\s\S]*?\{\{\/if_admin\}\}/g, '');
     // Belt-and-suspenders: ensure no admin_review_url leaks if placed outside
     rawBody = rawBody.replace(/\{\{admin_review_url\}\}/g, '');
+  }
+
+  if (recipientIsSalesRep) {
+    rawBody = rawBody.replace(/\{\{#if_manager\}\}[\s\S]*?\{\{\/if_manager\}\}/g, '');
+    rawBody = rawBody.replace(
+      /<div\b[^>]*>\s*<strong\b[^>]*>\s*Manager Note:\s*<\/strong>[\s\S]*?<\/div>/gi,
+      ''
+    );
+  } else {
+    rawBody = rawBody.replace(/\{\{#if_manager\}\}/g, '').replace(/\{\{\/if_manager\}\}/g, '');
   }
 
   // 2. Process conditional notes block if applicable
