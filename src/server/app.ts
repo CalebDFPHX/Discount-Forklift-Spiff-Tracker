@@ -36,6 +36,7 @@ import {
 } from '../lib/resend.js';
 import { formatDollars } from '../lib/formatters.js';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone.js';
+import { verifyEmailDecisionToken } from '../lib/emailDecisionTokens.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -595,6 +596,40 @@ app.post(
 // ----------------------------------------------------
 // Protected Administrator Endpoints
 // ----------------------------------------------------
+
+// Email decision links are signed, expire after seven days, and can only decide pending requests.
+app.get('/api/email-actions/:token', async (req, res) => {
+  res.set('Cache-Control', 'no-store, max-age=0');
+  res.set('X-Robots-Tag', 'noindex, nofollow');
+
+  const token = verifyEmailDecisionToken(req.params.token);
+  if (!token) {
+    return res.status(400).type('text/plain').send('This email decision link is invalid or has expired.');
+  }
+
+  try {
+    const decisionText = token.decision === 'approve' ? 'approved' : 'denied';
+    const updated = await Repository.decideSubmission(
+      token.submissionId,
+      token.approverEmail,
+      {
+        decision: token.decision,
+        reasonOrMessage: token.decision === 'deny' ? 'Denied via email action' : undefined,
+        recipients: [],
+        appUrl: CANONICAL_APP_URL,
+      }
+    );
+
+    return res
+      .status(200)
+      .type('text/plain')
+      .send(`Request ${updated.id} ${decisionText}. The decision has been recorded and the submitter has been notified.`);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to process this decision link.';
+    const statusCode = message.includes('already been decided') ? 409 : 400;
+    return res.status(statusCode).type('text/plain').send(message);
+  }
+});
 
 // System status & health
 app.get('/api/admin/status', requireAdmin, async (req, res) => {

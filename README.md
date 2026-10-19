@@ -127,6 +127,8 @@ The app can send notifications through Gmail SMTP or Resend. Gmail is selected w
 
 For local development, use the same two variables in the ignored local `.env` file and restart the server. Gmail is intended for low-volume notifications and has sending limits; Google Workspace administrators may also restrict SMTP or App Password use.
 
+New-submission notification emails include **Approve** and **Deny** links for the routed approving manager. The links are signed with `AUTH_SECRET`, expire after 7 days, and work only while the request is pending; the first decision wins. Clicking a link immediately records the decision without a separate sign-in or confirmation. Denial actions are recorded with the reason “Denied via email action.” Treat these links as sensitive and do not forward them.
+
 #### Resend
 1. Go to [Resend.com](https://resend.com) and create an API Key with "Full access".
 2. Under **Domains**, click **Add Domain** (e.g. `discountforkliftphoenix.com`).

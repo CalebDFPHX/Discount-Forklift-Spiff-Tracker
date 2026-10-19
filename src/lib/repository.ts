@@ -1,6 +1,7 @@
 import { db, schema, isNeonConfigured } from '../db/index.js';
 import { eq, desc, asc, and, gte, lte, lt, like, or, sql, isNull } from 'drizzle-orm';
 import { sendSpiffSubmissionEmail, sendSpiffDecisionResultEmail, sendRenderedEmail } from './resend.js';
+import { createEmailDecisionToken } from './emailDecisionTokens.js';
 import { formatDollars, validateSerialSuffix } from './formatters.js';
 import { formatPhoenixDate, formatPhoenixDateTime, getPhoenixDateRangeUtcBounds } from './timezone.js';
 import { hashPassword, verifyPassword, validatePasswordStrength } from './auth.js';
@@ -19,6 +20,26 @@ export type { EmailTemplate, EmailTemplateVersion };
 
 const CANONICAL_APP_URL =
   process.env.APP_URL || process.env.NEXTAUTH_URL || 'https://discountforkliftphoenix.com';
+
+function renderEmailDecisionButtons(
+  baseUrl: string,
+  submissionId: string,
+  approverEmail: string
+): string {
+  const root = baseUrl.replace(/\/+$/, '');
+  const approveToken = createEmailDecisionToken(submissionId, 'approve', approverEmail);
+  const denyToken = createEmailDecisionToken(submissionId, 'deny', approverEmail);
+  const approveUrl = `${root}/api/email-actions/${approveToken}`;
+  const denyUrl = `${root}/api/email-actions/${denyToken}`;
+
+  return `
+    <div style="max-width:600px;margin:24px auto;padding:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;text-align:center;font-family:Arial,sans-serif;">
+      <p style="margin:0 0 16px;color:#0f172a;font-size:15px;font-weight:700;">Approve or deny this request</p>
+      <a href="${approveUrl}" style="display:inline-block;margin:0 6px 8px;padding:12px 24px;background:#15803d;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;">Approve</a>
+      <a href="${denyUrl}" style="display:inline-block;margin:0 6px 8px;padding:12px 24px;background:#b91c1c;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;">Deny</a>
+      <p style="margin:12px 0 0;color:#64748b;font-size:11px;">These links decide the request immediately, are valid for 7 days, and only work while the request is pending. Denials are recorded as “Denied via email action.”</p>
+    </div>`;
+}
 
 export interface AdminUser {
   id: string;
@@ -1221,6 +1242,14 @@ export const Repository = {
       notes: newSubmission.notes || '',
     };
     const rendered = renderEmailTemplate(template, templateData, true);
+    const actionButtons = recipientRole === 'Approving Manager'
+      ? renderEmailDecisionButtons(
+          baseUrl,
+          submissionId,
+          recipientEmail,
+        )
+      : '';
+    const renderedSubmissionHtml = `${rendered.bodyHtml}${actionButtons}`;
 
     const eventPayloadJson = JSON.stringify({
       requestId: submissionId,
@@ -1248,7 +1277,7 @@ export const Repository = {
       templateId: template.id,
       templateVersion: template.version,
       renderedSubject: rendered.subject,
-      renderedBodyHtml: rendered.bodyHtml,
+      renderedBodyHtml: renderedSubmissionHtml,
       eventPayload: eventPayloadJson,
       createdAt: now,
     };
