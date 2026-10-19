@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Edit2, Users, CheckCircle2, XCircle, Mail, Building, Sparkles, Star } from 'lucide-react';
+import { Plus, Edit2, Trash2, Users, CheckCircle2, XCircle, Mail, Building, Sparkles, Star } from 'lucide-react';
 import { NotificationContact, Branch } from '../lib/repository';
 import { adminFetch } from '../lib/api';
 
@@ -7,6 +7,7 @@ interface AdminContactsManagerProps {
   contacts: NotificationContact[];
   branches?: Branch[];
   adminUser: string;
+  adminRole: string;
   onRefresh: () => void;
   onLoadPresets?: () => void;
   onNavigateToBranches?: () => void;
@@ -16,6 +17,7 @@ export const AdminContactsManager: React.FC<AdminContactsManagerProps> = ({
   contacts,
   branches = [],
   adminUser,
+  adminRole,
   onRefresh,
   onLoadPresets,
   onNavigateToBranches,
@@ -123,6 +125,19 @@ export const AdminContactsManager: React.FC<AdminContactsManagerProps> = ({
       onRefresh();
     } catch (err) {
       console.error('Failed to toggle contact status:', err);
+    }
+  };
+
+  const handleDelete = async (contact: NotificationContact) => {
+    if (!window.confirm(`Permanently delete notification contact "${contact.name}"? This also removes the contact from assigned General Manager lists.`)) return;
+
+    try {
+      const response = await adminFetch(`/api/admin/contacts/${contact.id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to delete notification contact.');
+      onRefresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to delete notification contact.');
     }
   };
 
@@ -247,13 +262,25 @@ export const AdminContactsManager: React.FC<AdminContactsManagerProps> = ({
                     </button>
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <button
-                      onClick={() => openEditModal(c)}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1 border border-[#444444] bg-[#1e1e1e] hover:bg-[#383838] rounded text-gray-200 font-medium text-xs transition-colors"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                      <span>Edit</span>
-                    </button>
+                    <div className="inline-flex items-center space-x-1">
+                      <button
+                        onClick={() => openEditModal(c)}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 border border-[#444444] bg-[#1e1e1e] hover:bg-[#383838] rounded text-gray-200 font-medium text-xs transition-colors"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>Edit</span>
+                      </button>
+                      {adminRole === 'Administrator' && (
+                        <button
+                          onClick={() => handleDelete(c)}
+                          className="p-1.5 text-gray-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors"
+                          title="Delete notification contact"
+                          aria-label={`Delete ${c.name}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

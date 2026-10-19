@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Edit2, Users, CheckCircle2, XCircle, Sparkles, Mail, AlertTriangle, Building, ShieldCheck } from 'lucide-react';
+import { Plus, Edit2, Trash2, Users, CheckCircle2, XCircle, Sparkles, Mail, AlertTriangle, Building, ShieldCheck } from 'lucide-react';
 import { SalesRep, NotificationContact, Branch } from '../lib/repository';
 import { adminFetch } from '../lib/api';
 
@@ -8,6 +8,7 @@ interface AdminRepManagerProps {
   contacts: NotificationContact[];
   branches?: Branch[];
   adminUser: string;
+  adminRole: string;
   onRefresh: () => void;
   onLoadPresets?: () => void;
   onNavigateToBranches?: () => void;
@@ -18,6 +19,7 @@ export const AdminRepManager: React.FC<AdminRepManagerProps> = ({
   contacts,
   branches = [],
   adminUser,
+  adminRole,
   onRefresh,
   onLoadPresets,
   onNavigateToBranches,
@@ -136,6 +138,19 @@ export const AdminRepManager: React.FC<AdminRepManagerProps> = ({
       onRefresh();
     } catch (err) {
       console.error('Failed to toggle rep status:', err);
+    }
+  };
+
+  const handleDelete = async (rep: SalesRep) => {
+    if (!window.confirm(`Permanently delete sales rep "${rep.name}"? Reps with submission history cannot be deleted; deactivate those reps instead.`)) return;
+
+    try {
+      const response = await adminFetch(`/api/admin/reps/${rep.id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to delete sales rep.');
+      onRefresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to delete sales rep.');
     }
   };
 
@@ -276,13 +291,25 @@ export const AdminRepManager: React.FC<AdminRepManagerProps> = ({
                       </button>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => openEditModal(r)}
-                        className="inline-flex items-center space-x-1 px-2.5 py-1 border border-[#444444] bg-[#1e1e1e] hover:bg-[#383838] rounded text-gray-200 font-medium text-xs transition-colors"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                        <span>Edit</span>
-                      </button>
+                      <div className="inline-flex items-center space-x-1">
+                        <button
+                          onClick={() => openEditModal(r)}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 border border-[#444444] bg-[#1e1e1e] hover:bg-[#383838] rounded text-gray-200 font-medium text-xs transition-colors"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>Edit</span>
+                        </button>
+                        {adminRole === 'Administrator' && (
+                          <button
+                            onClick={() => handleDelete(r)}
+                            className="p-1.5 text-gray-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors"
+                            title="Delete sales rep"
+                            aria-label={`Delete ${r.name}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

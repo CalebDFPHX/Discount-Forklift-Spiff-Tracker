@@ -8,6 +8,7 @@ interface AdminBranchManagerProps {
   reps: SalesRep[];
   contacts: NotificationContact[];
   adminUser: string;
+  adminRole: string;
   onRefresh: () => void;
 }
 
@@ -16,6 +17,7 @@ export const AdminBranchManager: React.FC<AdminBranchManagerProps> = ({
   reps,
   contacts,
   adminUser,
+  adminRole,
   onRefresh,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -125,11 +127,11 @@ export const AdminBranchManager: React.FC<AdminBranchManagerProps> = ({
       const res = await adminFetch(`/api/admin/branches/${b.id}`, {
         method: 'DELETE',
       });
-      if (res.ok) {
-        onRefresh();
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete branch.');
+      onRefresh();
     } catch (err) {
-      console.error('Failed to delete branch:', err);
+      window.alert(err instanceof Error ? err.message : 'Failed to delete branch.');
     }
   };
 
@@ -306,13 +308,15 @@ export const AdminBranchManager: React.FC<AdminBranchManagerProps> = ({
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => handleDelete(b)}
-                            className="p-1.5 text-gray-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors"
-                            title="Delete branch"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {adminRole === 'Administrator' && (
+                            <button
+                              onClick={() => handleDelete(b)}
+                              className="p-1.5 text-gray-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors"
+                              title="Delete branch"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

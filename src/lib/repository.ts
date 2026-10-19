@@ -650,6 +650,27 @@ export const Repository = {
     throw new Error('Sales rep not found');
   },
 
+  async deleteRep(id: string): Promise<boolean> {
+    const hasSubmissions = this.isLiveDatabaseConnected() && db
+      ? Number((await db
+          .select({ count: sql<number>`count(*)` })
+          .from(schema.spiffSubmissions)
+          .where(eq(schema.spiffSubmissions.repId, id)))[0]?.count || 0) > 0
+      : memoryStore.submissions.some((submission) => submission.repId === id);
+    if (hasSubmissions) {
+      throw new Error('This sales rep has submission history and cannot be deleted. Deactivate the rep to preserve the ledger history.');
+    }
+
+    if (this.isLiveDatabaseConnected() && db) {
+      const deleted = await db.delete(schema.salesReps).where(eq(schema.salesReps.id, id)).returning({ id: schema.salesReps.id });
+      if (deleted.length === 0) throw new Error('Sales rep not found.');
+    }
+    const index = memoryStore.reps.findIndex((rep) => rep.id === id);
+    if (index === -1 && !this.isLiveDatabaseConnected()) throw new Error('Sales rep not found.');
+    if (index !== -1) memoryStore.reps.splice(index, 1);
+    return true;
+  },
+
   async getRepById(id: string): Promise<SalesRep | null> {
     if (this.isLiveDatabaseConnected() && db) {
       try {
@@ -782,6 +803,40 @@ export const Repository = {
     throw new Error('Contact not found');
   },
 
+  async deleteContact(id: string): Promise<boolean> {
+    if (this.isLiveDatabaseConnected() && db) {
+      await db.transaction(async (tx) => {
+        const reps = await tx.select().from(schema.salesReps);
+        for (const rep of reps) {
+          const ids = (rep.assignedGmIds || '').split(',').map((value) => value.trim()).filter(Boolean);
+          const remaining = ids.filter((assignedId) => assignedId !== id);
+          if (remaining.length !== ids.length) {
+            await tx.update(schema.salesReps)
+              .set({ assignedGmIds: remaining.length ? remaining.join(',') : null, updatedAt: new Date() })
+              .where(eq(schema.salesReps.id, rep.id));
+          }
+        }
+        const deleted = await tx.delete(schema.notificationContacts)
+          .where(eq(schema.notificationContacts.id, id))
+          .returning({ id: schema.notificationContacts.id });
+        if (deleted.length === 0) throw new Error('Notification contact not found.');
+      });
+    }
+
+    const index = memoryStore.contacts.findIndex((contact) => contact.id === id);
+    if (index === -1 && !this.isLiveDatabaseConnected()) throw new Error('Notification contact not found.');
+    if (index !== -1) memoryStore.contacts.splice(index, 1);
+    for (const rep of memoryStore.reps) {
+      const ids = (rep.assignedGmIds || '').split(',').map((value) => value.trim()).filter(Boolean);
+      const remaining = ids.filter((assignedId) => assignedId !== id);
+      if (remaining.length !== ids.length) {
+        rep.assignedGmIds = remaining.length ? remaining.join(',') : null;
+        rep.updatedAt = new Date().toISOString();
+      }
+    }
+    return true;
+  },
+
   // ----------------------------------------------------
   // Branches Management
   // ----------------------------------------------------
@@ -911,18 +966,13 @@ export const Repository = {
 
   async deleteBranch(id: string): Promise<boolean> {
     if (this.isLiveDatabaseConnected() && db) {
-      try {
-        await db.delete(schema.branches).where(eq(schema.branches.id, id));
-      } catch (err) {
-        console.warn('Neon delete error for branch:', err);
-      }
+      const deleted = await db.delete(schema.branches).where(eq(schema.branches.id, id)).returning({ id: schema.branches.id });
+      if (deleted.length === 0) throw new Error('Branch not found.');
     }
     const idx = memoryStore.branches.findIndex((b) => b.id === id);
-    if (idx !== -1) {
-      memoryStore.branches.splice(idx, 1);
-      return true;
-    }
-    return false;
+    if (idx === -1 && !this.isLiveDatabaseConnected()) throw new Error('Branch not found.');
+    if (idx !== -1) memoryStore.branches.splice(idx, 1);
+    return true;
   },
 
   // ----------------------------------------------------
@@ -1049,6 +1099,27 @@ export const Repository = {
       return memoryStore.spiffs[idx];
     }
     throw new Error('Spiff program not found');
+  },
+
+  async deleteSpiff(id: string): Promise<boolean> {
+    const hasSubmissions = this.isLiveDatabaseConnected() && db
+      ? Number((await db
+          .select({ count: sql<number>`count(*)` })
+          .from(schema.spiffSubmissions)
+          .where(eq(schema.spiffSubmissions.spiffId, id)))[0]?.count || 0) > 0
+      : memoryStore.submissions.some((submission) => submission.spiffId === id);
+    if (hasSubmissions) {
+      throw new Error('This spiff program has submission history and cannot be deleted. Deactivate it to preserve the ledger history.');
+    }
+
+    if (this.isLiveDatabaseConnected() && db) {
+      const deleted = await db.delete(schema.spiffs).where(eq(schema.spiffs.id, id)).returning({ id: schema.spiffs.id });
+      if (deleted.length === 0) throw new Error('Spiff program not found.');
+    }
+    const index = memoryStore.spiffs.findIndex((spiff) => spiff.id === id);
+    if (index === -1 && !this.isLiveDatabaseConnected()) throw new Error('Spiff program not found.');
+    if (index !== -1) memoryStore.spiffs.splice(index, 1);
+    return true;
   },
 
   // ----------------------------------------------------
@@ -1658,6 +1729,48 @@ export const Repository = {
     return {
       ...sub,
       auditEvents: memoryStore.auditEvents.filter((a) => a.submissionId === id),
+    };
+  },
+
+  async deleteSubmission(id: string): Promise<{ photoCleanupFailures: string[] }> {
+    const attachmentRows = this.isLiveDatabaseConnected() && db
+      ? await db.select({ storageKey: schema.attachments.storageKey })
+          .from(schema.attachments)
+          .where(eq(schema.attachments.submissionId, id))
+      : memoryStore.attachments
+          .filter((attachment) => attachment.submissionId === id)
+          .map((attachment) => ({ storageKey: attachment.storageKey }));
+
+    if (this.isLiveDatabaseConnected() && db) {
+      await db.transaction(async (tx) => {
+        const submission = await tx.select({ id: schema.spiffSubmissions.id })
+          .from(schema.spiffSubmissions)
+          .where(eq(schema.spiffSubmissions.id, id))
+          .limit(1);
+        if (submission.length === 0) throw new Error('Submission not found.');
+
+        await tx.delete(schema.emailNotificationJobs).where(eq(schema.emailNotificationJobs.submissionId, id));
+        await tx.delete(schema.auditEvents).where(eq(schema.auditEvents.submissionId, id));
+        await tx.delete(schema.attachments).where(eq(schema.attachments.submissionId, id));
+        await tx.delete(schema.spiffSubmissions).where(eq(schema.spiffSubmissions.id, id));
+      });
+    } else {
+      const index = memoryStore.submissions.findIndex((submission) => submission.id === id);
+      if (index === -1) throw new Error('Submission not found.');
+      memoryStore.submissions.splice(index, 1);
+    }
+
+    memoryStore.submissions = memoryStore.submissions.filter((submission) => submission.id !== id);
+    memoryStore.auditEvents = memoryStore.auditEvents.filter((event) => event.submissionId !== id);
+    memoryStore.emailJobs = memoryStore.emailJobs.filter((job) => job.submissionId !== id);
+    memoryStore.attachments = memoryStore.attachments.filter((attachment) => attachment.submissionId !== id);
+
+    const cleanupResults = await Promise.all(attachmentRows.map(async ({ storageKey }) => ({
+      storageKey,
+      deleted: await deleteBlobPhoto(storageKey),
+    })));
+    return {
+      photoCleanupFailures: cleanupResults.filter((result) => !result.deleted).map((result) => result.storageKey),
     };
   },
 

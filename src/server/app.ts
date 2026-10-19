@@ -163,6 +163,13 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   next();
 }
 
+function requireAdministrator(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if ((req as any).adminRole !== 'Administrator') {
+    return res.status(403).json({ error: 'Only an Administrator can permanently delete records.' });
+  }
+  next();
+}
+
 // ----------------------------------------------------
 // Public Endpoints
 // ----------------------------------------------------
@@ -768,6 +775,20 @@ app.get('/api/admin/submissions/:id', requireAdmin, async (req, res) => {
   }
 });
 
+app.delete('/api/admin/submissions/:id', requireAdmin, requireAdministrator, async (req, res) => {
+  try {
+    const result = await Repository.deleteSubmission(req.params.id);
+    res.json({
+      success: true,
+      photoCleanupWarning: result.photoCleanupFailures.length
+        ? `The submission was deleted, but ${result.photoCleanupFailures.length} photo file(s) could not be removed from storage.`
+        : null,
+    });
+  } catch (err: any) {
+    res.status(err.message === 'Submission not found.' ? 404 : 400).json({ error: err.message });
+  }
+});
+
 // Approve / Deny submission
 app.post('/api/admin/submissions/:id/decide', requireAdmin, async (req, res) => {
   try {
@@ -1010,6 +1031,15 @@ app.patch('/api/admin/reps/:id', requireAdmin, async (req, res) => {
   }
 });
 
+app.delete('/api/admin/reps/:id', requireAdmin, requireAdministrator, async (req, res) => {
+  try {
+    await Repository.deleteRep(req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.message === 'Sales rep not found.' ? 404 : 400).json({ error: err.message });
+  }
+});
+
 // Admin Notification Contacts CRUD
 app.get('/api/admin/contacts', requireAdmin, async (req, res) => {
   try {
@@ -1053,6 +1083,15 @@ app.patch('/api/admin/contacts/:id', requireAdmin, async (req, res) => {
   }
 });
 
+app.delete('/api/admin/contacts/:id', requireAdmin, requireAdministrator, async (req, res) => {
+  try {
+    await Repository.deleteContact(req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.message === 'Notification contact not found.' ? 404 : 400).json({ error: err.message });
+  }
+});
+
 // Admin Branches CRUD
 app.get('/api/admin/branches', requireAdmin, async (req, res) => {
   try {
@@ -1089,7 +1128,7 @@ app.patch('/api/admin/branches/:id', requireAdmin, async (req, res) => {
   }
 });
 
-app.delete('/api/admin/branches/:id', requireAdmin, async (req, res) => {
+app.delete('/api/admin/branches/:id', requireAdmin, requireAdministrator, async (req, res) => {
   try {
     const success = await Repository.deleteBranch(req.params.id);
     res.json({ success });
@@ -1139,6 +1178,15 @@ app.patch('/api/admin/spiffs/:id', requireAdmin, async (req, res) => {
     res.json({ success: true, spiff });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/spiffs/:id', requireAdmin, requireAdministrator, async (req, res) => {
+  try {
+    await Repository.deleteSpiff(req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(err.message === 'Spiff program not found.' ? 404 : 400).json({ error: err.message });
   }
 });
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Edit2, CheckCircle2, XCircle, ArrowUp, ArrowDown, DollarSign, Loader2, Sparkles } from 'lucide-react';
+import { Plus, Edit2, Trash2, CheckCircle2, XCircle, ArrowUp, ArrowDown, DollarSign, Loader2, Sparkles } from 'lucide-react';
 import { Spiff } from '../lib/repository';
 import { formatDollars, parseDollarsToCents } from '../lib/formatters';
 import { adminFetch } from '../lib/api';
@@ -7,6 +7,7 @@ import { adminFetch } from '../lib/api';
 interface AdminSpiffManagerProps {
   spiffs: Spiff[];
   adminUser: string;
+  adminRole: string;
   onRefresh: () => void;
   onLoadPresets?: () => void;
 }
@@ -14,6 +15,7 @@ interface AdminSpiffManagerProps {
 export const AdminSpiffManager: React.FC<AdminSpiffManagerProps> = ({
   spiffs,
   adminUser,
+  adminRole,
   onRefresh,
   onLoadPresets,
 }) => {
@@ -120,6 +122,19 @@ export const AdminSpiffManager: React.FC<AdminSpiffManagerProps> = ({
     }
   };
 
+  const handleDelete = async (spiff: Spiff) => {
+    if (!window.confirm(`Permanently delete spiff program "${spiff.name}"? Programs with submission history cannot be deleted; deactivate those programs instead.`)) return;
+
+    try {
+      const response = await adminFetch(`/api/admin/spiffs/${spiff.id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to delete spiff program.');
+      onRefresh();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to delete spiff program.');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -223,13 +238,25 @@ export const AdminSpiffManager: React.FC<AdminSpiffManagerProps> = ({
                     </button>
                   </td>
                   <td className="py-3 px-4 text-right">
-                    <button
-                      onClick={() => openEditModal(s)}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1 border border-[#444444] bg-[#1e1e1e] hover:bg-[#383838] rounded text-gray-200 font-medium text-xs transition-colors"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                      <span>Edit</span>
-                    </button>
+                    <div className="inline-flex items-center space-x-1">
+                      <button
+                        onClick={() => openEditModal(s)}
+                        className="inline-flex items-center space-x-1 px-2.5 py-1 border border-[#444444] bg-[#1e1e1e] hover:bg-[#383838] rounded text-gray-200 font-medium text-xs transition-colors"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>Edit</span>
+                      </button>
+                      {adminRole === 'Administrator' && (
+                        <button
+                          onClick={() => handleDelete(s)}
+                          className="p-1.5 text-gray-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors"
+                          title="Delete spiff program"
+                          aria-label={`Delete ${s.name}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -359,6 +359,7 @@ export default function App() {
             {adminTab === 'ledger' && (
               <AdminLedger
                 adminUser={adminUser || 'caleb@discountforkliftphoenix.com'}
+                adminRole={adminRole}
                 onOpenDetail={(sub) => setActiveDetailSubmission(sub)}
                 onViewPhoto={handleOpenPhoto}
                 onApproveClick={(sub) => handleOpenDecision(sub, 'approve')}
@@ -372,6 +373,7 @@ export default function App() {
               <AdminSpiffManager
                 spiffs={spiffs}
                 adminUser={adminUser || 'caleb@discountforkliftphoenix.com'}
+                adminRole={adminRole}
                 onRefresh={refreshConfig}
                 onLoadPresets={handleLoadPresets}
               />
@@ -383,6 +385,7 @@ export default function App() {
                 contacts={contacts}
                 branches={branches}
                 adminUser={adminUser || 'caleb@discountforkliftphoenix.com'}
+                adminRole={adminRole}
                 onRefresh={refreshConfig}
                 onLoadPresets={handleLoadPresets}
                 onNavigateToBranches={() => setAdminTab('branches')}
@@ -394,6 +397,7 @@ export default function App() {
                 contacts={contacts}
                 branches={branches}
                 adminUser={adminUser || 'caleb@discountforkliftphoenix.com'}
+                adminRole={adminRole}
                 onRefresh={refreshConfig}
                 onLoadPresets={handleLoadPresets}
                 onNavigateToBranches={() => setAdminTab('branches')}
@@ -406,6 +410,7 @@ export default function App() {
                 reps={reps}
                 contacts={contacts}
                 adminUser={adminUser || 'caleb@discountforkliftphoenix.com'}
+                adminRole={adminRole}
                 onRefresh={refreshConfig}
               />
             )}

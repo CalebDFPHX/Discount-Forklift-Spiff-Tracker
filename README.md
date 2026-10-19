@@ -12,6 +12,7 @@ Sales representatives submit cash spiff requests after closing a forklift sale. 
 - **Persistent Database**: [Neon PostgreSQL](https://neon.tech) utilizing serverless pooling (`@neondatabase/serverless`).
 - **ORM & Migrations**: [Drizzle ORM](https://orm.drizzle.team) with version-controlled migrations (`drizzle/`).
 - **Administrator Authentication**: Secure email-and-password authentication with cryptographic salted scrypt hashing, expiring single-use invite and reset tokens, HttpOnly SameSite session cookies, and explicit database allowlist enforcement in Neon. No Google OAuth or client-side credentials.
+- **Administrative Deletion**: Administrators can permanently delete ledger submissions and remove unused configuration records. Submission deletion removes its photo, audit history, and email jobs; sales reps and spiff programs with submission history must be deactivated instead of deleted.
 - **Shared Rate Limiting**: Multi-instance persistent rate limiting backed by Neon (`rate_limits` table) with trusted platform IP detection.
 - **Email Notifications**: [Resend](https://resend.com) transactional emails with database job queues and retry idempotency.
 - **Photo Storage**: Private [Vercel Blob](https://vercel.com/docs/storage/vercel-blob) storage accessed strictly via administrator-authenticated server endpoints with magic-byte verification.

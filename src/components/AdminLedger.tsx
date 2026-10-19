@@ -17,6 +17,7 @@ import {
   Loader2,
   ThumbsUp,
   ThumbsDown,
+  Trash2,
 } from 'lucide-react';
 import { SpiffSubmission, SalesRep } from '../lib/repository';
 import { formatDollars } from '../lib/formatters';
@@ -25,6 +26,7 @@ import { adminFetch } from '../lib/api';
 
 interface AdminLedgerProps {
   adminUser: string;
+  adminRole: string;
   onOpenDetail: (submission: SpiffSubmission) => void;
   onViewPhoto: (submission: SpiffSubmission) => void;
   onApproveClick: (submission: SpiffSubmission) => void;
@@ -35,6 +37,7 @@ interface AdminLedgerProps {
 
 export const AdminLedger: React.FC<AdminLedgerProps> = ({
   adminUser,
+  adminRole,
   onOpenDetail,
   onViewPhoto,
   onApproveClick,
@@ -45,6 +48,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
   const [submissions, setSubmissions] = useState<SpiffSubmission[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [deletingSubmissionId, setDeletingSubmissionId] = useState<string | null>(null);
 
   // Filter & Search states
   const [selectedRep, setSelectedRep] = useState<string>('all');
@@ -102,6 +106,26 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
     setSearchQuery('');
     setSortBy('submittedAt');
     setSortOrder('desc');
+  };
+
+  const handleDeleteSubmission = async (submission: SpiffSubmission) => {
+    const confirmation = window.prompt(
+      `PERMANENT DELETE: This removes the submission, its photo, audit history, and email records. This cannot be undone, regardless of its status.\n\nType DELETE ${submission.id} to continue.`
+    );
+    if (confirmation !== `DELETE ${submission.id}`) return;
+
+    setDeletingSubmissionId(submission.id);
+    try {
+      const response = await adminFetch(`/api/admin/submissions/${submission.id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to delete submission.');
+      if (data.photoCleanupWarning) window.alert(data.photoCleanupWarning);
+      await fetchLedger();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : 'Failed to delete submission.');
+    } finally {
+      setDeletingSubmissionId(null);
+    }
   };
 
   const handleExportCsv = () => {
@@ -572,6 +596,19 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
                           >
                             <span>Review</span>
                             <ChevronRight className="w-3 h-3" />
+                          </button>
+                        )}
+                        {adminRole === 'Administrator' && (
+                          <button
+                            onClick={() => handleDeleteSubmission(sub)}
+                            disabled={deletingSubmissionId === sub.id}
+                            className="p-1.5 text-gray-400 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-colors disabled:opacity-50"
+                            title="Permanently delete submission"
+                            aria-label={`Permanently delete submission ${sub.id}`}
+                          >
+                            {deletingSubmissionId === sub.id
+                              ? <Loader2 className="w-4 h-4 animate-spin" />
+                              : <Trash2 className="w-4 h-4" />}
                           </button>
                         )}
                       </div>
