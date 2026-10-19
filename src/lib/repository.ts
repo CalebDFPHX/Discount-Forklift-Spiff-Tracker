@@ -639,7 +639,7 @@ export const Repository = {
   ): Promise<SalesRep> {
     const now = new Date().toISOString();
     if (this.isLiveDatabaseConnected() && db) {
-      await db
+      const [updatedRep] = await db
         .update(schema.salesReps)
         .set({
           ...(updates.name !== undefined ? { name: updates.name.trim() } : {}),
@@ -650,7 +650,14 @@ export const Repository = {
           ...(updates.displayOrder !== undefined ? { displayOrder: updates.displayOrder } : {}),
           updatedAt: new Date(),
         })
-        .where(eq(schema.salesReps.id, id));
+        .where(eq(schema.salesReps.id, id))
+        .returning();
+      if (!updatedRep) throw new Error('Sales rep not found.');
+      return {
+        ...updatedRep,
+        createdAt: updatedRep.createdAt.toISOString(),
+        updatedAt: updatedRep.updatedAt.toISOString(),
+      };
     }
 
     const idx = memoryStore.reps.findIndex((r) => r.id === id);

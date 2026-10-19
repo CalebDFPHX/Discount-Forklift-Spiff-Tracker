@@ -105,7 +105,10 @@ export const AdminRepManager: React.FC<AdminRepManagerProps> = ({
           },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error('Failed to update rep.');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to update rep.');
+        }
       } else {
         const res = await adminFetch('/api/admin/reps', {
           method: 'POST',
@@ -114,7 +117,10 @@ export const AdminRepManager: React.FC<AdminRepManagerProps> = ({
           },
           body: JSON.stringify(payload),
         });
-        if (!res.ok) throw new Error('Failed to add rep.');
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || 'Failed to add rep.');
+        }
       }
 
       setIsModalOpen(false);
