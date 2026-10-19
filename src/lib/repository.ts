@@ -1,6 +1,11 @@
 import { db, schema, isNeonConfigured } from '../db/index.js';
 import { eq, desc, asc, and, gte, lte, lt, like, or, sql, isNull, inArray } from 'drizzle-orm';
-import { sendSpiffSubmissionEmail, sendSpiffDecisionResultEmail, sendRenderedEmail } from './resend.js';
+import {
+  sendSpiffSubmissionEmail,
+  sendSpiffDecisionResultEmail,
+  sendRenderedEmail,
+  sanitizeEmailProviderError,
+} from './resend.js';
 import { createEmailDecisionToken } from './emailDecisionTokens.js';
 import { formatDollars, validateSerialSuffix } from './formatters.js';
 import { formatPhoenixDate, formatPhoenixDateTime, getPhoenixDateRangeUtcBounds } from './timezone.js';
@@ -217,6 +222,32 @@ export interface EmailJob {
   eventPayload?: string | null; // JSON snapshot of original decision, amount, explanation, and recipients
   createdAt: string;
   updatedAt?: string | null;
+}
+
+export interface PaidReceiptNotificationResult {
+  recipientEmail: string;
+  notificationJobId: string;
+  status: EmailJob['status'];
+  errorMessage: string | null;
+}
+
+type EmailDelivery = typeof sendRenderedEmail;
+
+function parseAssignedGeneralManagerIds(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((id): id is string => typeof id === 'string').map((id) => id.trim()).filter(Boolean);
+    }
+  } catch {
+    // Legacy assignments are comma-separated IDs.
+  }
+  return value.split(',').map((id) => id.trim()).filter(Boolean);
+}
+
+function isValidRecipientEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
 class InMemoryStore {
@@ -1789,6 +1820,192 @@ export const Repository = {
     };
   },
 
+  async getAssignedActiveGeneralManagers(repId: string): Promise<NotificationContact[]> {
+    const rep = await this.getRepById(repId);
+    if (!rep) throw new Error('The sales rep record for this request could not be found.');
+
+    const assignedIds = parseAssignedGeneralManagerIds(rep.assignedGmIds);
+    if (assignedIds.length === 0) {
+      throw new Error(
+        `No General Manager is assigned to ${rep.name}. Assign one or more active contacts with the exact “General Manager” role in Rep Management before approving.`
+      );
+    }
+
+    const contacts = await this.getAllContacts();
+    const activeManagers = contacts.filter(
+      (contact) =>
+        contact.isActive &&
+        contact.role === 'General Manager' &&
+        assignedIds.includes(contact.id) &&
+        isValidRecipientEmail(contact.email)
+    );
+    if (activeManagers.length === 0) {
+      throw new Error(
+        `The General Manager assigned to ${rep.name} is inactive, invalid, or does not have the exact “General Manager” role. Update the rep’s assignment to an active General Manager contact before approving.`
+      );
+    }
+
+    return activeManagers;
+  },
+
+  async buildPaidReceiptJob(
+    submission: SpiffSubmission,
+    manager: NotificationContact,
+    adminUser: string,
+    approvedAt: string,
+    appUrl: string
+  ): Promise<EmailJob> {
+    const template = await this.getEmailTemplate('spiff_approved_paid_receipt');
+    const rendered = renderEmailTemplate(
+      template,
+      {
+        request_id: submission.id,
+        rep_name: submission.snapshotRepName,
+        lift_name: submission.liftName,
+        serial_suffix: submission.serialSuffix,
+        spiff_name: submission.snapshotSpiffName,
+        spiff_amount: formatDollars(submission.snapshotAmountCents),
+        sale_date: formatPhoenixDate(submission.saleDate),
+        submitted_at: formatPhoenixDateTime(submission.submittedAt),
+        decision: 'Approved',
+        decision_at: formatPhoenixDateTime(approvedAt),
+        decision_by: adminUser,
+        denial_reason: '',
+        approval_message: '',
+        admin_review_url: `${appUrl}/admin?request=${submission.id}`,
+      },
+      false
+    );
+    const email = manager.email.trim().toLowerCase();
+    return {
+      id: `job_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      submissionId: submission.id,
+      jobType: 'decision_result',
+      recipientEmail: email,
+      recipientName: manager.name,
+      recipientRole: 'General Manager',
+      status: 'queued',
+      attemptCount: 0,
+      lastAttemptAt: null,
+      idempotencyKey: `job_paid_receipt_${submission.id}_${email}`,
+      templateId: template.id,
+      templateVersion: template.version,
+      renderedSubject: rendered.subject,
+      renderedBodyHtml: appendEmailActionContent(
+        rendered.bodyHtml,
+        renderEmailPaidButton(appUrl, submission.id, email)
+      ),
+      eventPayload: JSON.stringify({
+        originalDecision: 'Approved',
+        decisionBy: adminUser,
+        approvedAt,
+        amountFormatted: formatDollars(submission.snapshotAmountCents),
+      }),
+      createdAt: new Date().toISOString(),
+    };
+  },
+
+  async getPaidReceiptNotificationResults(
+    submissionId: string
+  ): Promise<PaidReceiptNotificationResult[]> {
+    const jobs = await this.getEmailJobs();
+    return jobs
+      .filter(
+        (job) =>
+          job.submissionId === submissionId &&
+          job.templateId === 'spiff_approved_paid_receipt'
+      )
+      .map((job) => ({
+        recipientEmail: job.recipientEmail,
+        notificationJobId: job.id,
+        status: job.status,
+        errorMessage: job.errorMessage || null,
+      }));
+  },
+
+  async recoverPaidReceiptNotifications(
+    submissionId: string,
+    appUrl: string,
+    deliverEmail: EmailDelivery = sendRenderedEmail
+  ): Promise<PaidReceiptNotificationResult[]> {
+    this.assertDatabaseOrMemoryAllowed();
+    const submission = await this.getSubmissionById(submissionId);
+    if (!submission) throw new Error('Submission not found.');
+    if (submission.status === 'Paid') {
+      return this.getPaidReceiptNotificationResults(submissionId);
+    }
+    if (submission.status !== 'Approved' || !submission.approvedAt) {
+      throw new Error('A paid receipt can only be recovered for a request that is already Approved.');
+    }
+
+    const managers = await this.getAssignedActiveGeneralManagers(submission.repId);
+    for (const manager of managers) {
+      const email = manager.email.trim().toLowerCase();
+      let jobs = await this.getPaidReceiptNotificationResults(submissionId);
+      let existing = jobs.find((job) => job.recipientEmail.trim().toLowerCase() === email);
+
+      if (!existing) {
+        const job = await this.buildPaidReceiptJob(
+          submission,
+          manager,
+          submission.approvedBy || 'Administrator',
+          submission.approvedAt,
+          appUrl.replace(/\/+$/, '')
+        );
+
+        if (this.isLiveDatabaseConnected() && db) {
+          const [inserted] = await db
+            .insert(schema.emailNotificationJobs)
+            .values({
+              id: job.id,
+              submissionId: job.submissionId,
+              jobType: job.jobType,
+              recipientEmail: job.recipientEmail,
+              recipientName: job.recipientName,
+              recipientRole: job.recipientRole,
+              status: job.status,
+              attemptCount: 0,
+              idempotencyKey: job.idempotencyKey,
+              templateId: job.templateId,
+              templateVersion: job.templateVersion,
+              renderedSubject: job.renderedSubject,
+              renderedBodyHtml: job.renderedBodyHtml,
+              eventPayload: job.eventPayload,
+            })
+            .onConflictDoNothing({
+              target: schema.emailNotificationJobs.idempotencyKey,
+            })
+            .returning({ id: schema.emailNotificationJobs.id });
+          if (inserted) memoryStore.emailJobs.push(job);
+        } else {
+          const duplicate = memoryStore.emailJobs.find(
+            (existingJob) => existingJob.idempotencyKey === job.idempotencyKey
+          );
+          if (!duplicate) memoryStore.emailJobs.push(job);
+        }
+
+        jobs = await this.getPaidReceiptNotificationResults(submissionId);
+        existing = jobs.find((result) => result.recipientEmail.trim().toLowerCase() === email);
+      }
+
+      if (!existing) {
+        throw new Error(
+          `Could not create or locate the paid receipt notification job for ${email}.`
+        );
+      }
+
+      if (existing.status === 'queued' || existing.status === 'failed') {
+        const job = existing.status === 'queued'
+          ? await this.dispatchJob(existing.notificationJobId, appUrl, deliverEmail)
+          : await this.retryNotification(existing.notificationJobId, appUrl, deliverEmail);
+        existing.status = job.status;
+        existing.errorMessage = job.errorMessage || null;
+      }
+    }
+
+    return this.getPaidReceiptNotificationResults(submissionId);
+  },
+
   // ----------------------------------------------------
   // 7. Decision Processing: Approve / Deny with Automatic Result Emails
   // ----------------------------------------------------
@@ -1800,7 +2017,8 @@ export const Repository = {
       reasonOrMessage?: string;
       recipients: Array<{ email: string; name: string; role: string }>;
       appUrl?: string;
-    }
+    },
+    deliverEmail: EmailDelivery = sendRenderedEmail
   ): Promise<SpiffSubmission> {
     const sub = await this.getSubmissionById(id);
     if (!sub) throw new Error('Submission not found.');
@@ -1915,44 +2133,9 @@ export const Repository = {
     // Approval results go only to the submitting rep; the assigned GM gets a separate paid receipt.
     const templateId = isApprove ? 'spiff_approved' : 'spiff_denied';
     const template = await this.getEmailTemplate(templateId);
-    const paidReceiptRecipients: Array<{ email: string; name: string; role: string }> = [];
-    if (isApprove) {
-      const repRecord = await this.getRepById(sub.repId);
-      const assignedGmIds = (repRecord?.assignedGmIds || '')
-        .split(',')
-        .map((gmId) => gmId.trim())
-        .filter(Boolean);
-      const assignedManagers = allContacts.filter(
-        (contact) =>
-          contact.isActive &&
-          contact.role === 'General Manager' &&
-          assignedGmIds.includes(contact.id) &&
-          contact.email.trim().includes('@')
-      );
-      const managers = assignedManagers.length
-        ? assignedManagers
-        : allContacts.filter((contact) => {
-            const repBranch = (repRecord?.branch || '').trim().toLowerCase();
-            const contactBranch = (contact.branch || '').trim().toLowerCase();
-            return contact.isActive &&
-              contact.role === 'General Manager' &&
-              Boolean(repBranch && contactBranch &&
-                (contactBranch.includes(repBranch) || repBranch.includes(contactBranch))) &&
-              contact.email.trim().includes('@');
-          });
-      for (const manager of managers) {
-        const email = manager.email.trim().toLowerCase();
-        if (paidReceiptRecipients.some((recipient) => recipient.email === email)) continue;
-        paidReceiptRecipients.push({
-          email,
-          name: manager.name,
-          role: manager.role,
-        });
-      }
-      if (paidReceiptRecipients.length === 0) {
-        throw new Error('Cannot approve this request: no active General Manager is assigned to the submitting sales rep. Assign a General Manager in Rep Management and try again.');
-      }
-    }
+    const paidReceiptRecipients = isApprove
+      ? await this.getAssignedActiveGeneralManagers(sub.repId)
+      : [];
 
     // Immutable event payload preserved across all subsequent job retries
     const eventPayloadObj = {
@@ -2024,46 +2207,14 @@ export const Repository = {
     }
 
     if (isApprove) {
-      const paidReceiptTemplate = await this.getEmailTemplate('spiff_approved_paid_receipt');
       for (const manager of paidReceiptRecipients) {
-        const receiptData = {
-          request_id: id,
-          rep_name: sub.snapshotRepName,
-          lift_name: sub.liftName,
-          serial_suffix: sub.serialSuffix,
-          spiff_name: sub.snapshotSpiffName,
-          spiff_amount: formatDollars(sub.snapshotAmountCents),
-          sale_date: formatPhoenixDate(sub.saleDate),
-          submitted_at: formatPhoenixDateTime(sub.submittedAt),
-          decision: decisionText,
-          decision_at: formatPhoenixDateTime(now),
-          decision_by: adminUser,
-          denial_reason: '',
-          approval_message: '',
-          admin_review_url: `${baseUrl}/admin?request=${id}`,
-        };
-        const rendered = renderEmailTemplate(paidReceiptTemplate, receiptData, false);
-        const emailJob: EmailJob = {
-          id: `job_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-          submissionId: id,
-          jobType: 'decision_result',
-          recipientEmail: manager.email,
-          recipientName: manager.name,
-          recipientRole: manager.role,
-          status: 'queued',
-          attemptCount: 0,
-          lastAttemptAt: null,
-          idempotencyKey: `job_paid_receipt_${id}_${manager.email}`,
-          templateId: paidReceiptTemplate.id,
-          templateVersion: paidReceiptTemplate.version,
-          renderedSubject: rendered.subject,
-          renderedBodyHtml: appendEmailActionContent(
-            rendered.bodyHtml,
-            renderEmailPaidButton(baseUrl, id, manager.email)
-          ),
-          eventPayload: eventPayloadJson,
-          createdAt: now,
-        };
+        const emailJob = await this.buildPaidReceiptJob(
+          sub,
+          manager,
+          adminUser,
+          approvedAt!,
+          baseUrl.replace(/\/+$/, '')
+        );
         createdJobs.push(emailJob);
       }
     }
@@ -2152,16 +2303,15 @@ export const Repository = {
     await Promise.all(
       createdJobs.map(async (job) => {
         try {
-          const result = await this.dispatchJob(job.id);
+          const result = await this.dispatchJob(job.id, baseUrl, deliverEmail);
           if (result.status === 'failed') {
             console.error(
-              `[NotificationWorker] ${job.templateId || 'Decision'} email failed for ${job.recipientRole} ${job.recipientEmail}: ${result.errorMessage || 'Unknown delivery error.'}`
+              `[NotificationWorker] Job ${job.id} (${job.templateId || 'Decision'}) failed: ${result.errorMessage || 'Unknown delivery error.'}`
             );
           }
         } catch (err) {
           console.error(
-            `[NotificationWorker] ${job.templateId || 'Decision'} email dispatch error for ${job.recipientRole} ${job.recipientEmail}:`,
-            err
+            `[NotificationWorker] Job ${job.id} (${job.templateId || 'Decision'}) dispatch error: ${sanitizeEmailProviderError(err)}`
           );
         }
       })
@@ -2782,7 +2932,11 @@ export const Repository = {
    * - Enforces exponential backoff with max 5 attempts
    * - Distinguishes provider acceptance ('accepted') from verified inbox delivery ('delivered')
    */
-  async executeJobDelivery(job: EmailJob, appUrl?: string): Promise<EmailJob> {
+  async executeJobDelivery(
+    job: EmailJob,
+    appUrl?: string,
+    deliverEmail: EmailDelivery = sendRenderedEmail
+  ): Promise<EmailJob> {
     const now = new Date();
     if (isBlockedNotificationRecipient(job.recipientEmail)) {
       job.status = 'cancelled';
@@ -2910,7 +3064,7 @@ export const Repository = {
     }
 
     // 2. Requirement 5: Stable Resend idempotency key reused across retries
-    const emailResult = await sendRenderedEmail({
+    const emailResult = await deliverEmail({
       to: job.recipientEmail,
       subject,
       html,
@@ -3005,7 +3159,53 @@ export const Repository = {
   /**
    * Dispatches initial notification send strictly using the atomic claim & delivery pipeline.
    */
-  async dispatchJob(jobId: string, appUrl?: string): Promise<EmailJob> {
+  async recordJobDeliveryFailure(job: EmailJob, error: unknown): Promise<EmailJob> {
+    const now = new Date();
+    const claimedBy = job.lockedBy;
+    const failure = sanitizeEmailProviderError(error);
+    const delayMinutes = [1, 5, 15, 60][Math.min(Math.max(job.attemptCount - 1, 0), 3)];
+    const nextRetryAt = job.attemptCount < 5
+      ? new Date(now.getTime() + delayMinutes * 60_000)
+      : null;
+    job.status = 'failed';
+    job.errorMessage = failure;
+    job.nextRetryAt = nextRetryAt?.toISOString() || null;
+    job.lockedBy = null;
+    job.lockedAt = null;
+    job.leaseExpiresAt = null;
+    job.updatedAt = now.toISOString();
+
+    if (this.isLiveDatabaseConnected() && db) {
+      await db
+        .update(schema.emailNotificationJobs)
+        .set({
+          status: 'failed',
+          errorMessage: failure,
+          nextRetryAt,
+          lockedBy: null,
+          lockedAt: null,
+          leaseExpiresAt: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.emailNotificationJobs.id, job.id),
+            eq(schema.emailNotificationJobs.status, 'processing'),
+            eq(schema.emailNotificationJobs.lockedBy, claimedBy || '')
+          )
+        );
+    }
+
+    const memoryJob = memoryStore.emailJobs.find((storedJob) => storedJob.id === job.id);
+    if (memoryJob) Object.assign(memoryJob, job);
+    return job;
+  },
+
+  async dispatchJob(
+    jobId: string,
+    appUrl?: string,
+    deliverEmail: EmailDelivery = sendRenderedEmail
+  ): Promise<EmailJob> {
     const workerId = `worker_init_${process.pid}_${Math.random().toString(36).substring(2, 7)}`;
     const claimed = await this.claimJobForDelivery(jobId, workerId);
     if (!claimed) {
@@ -3013,14 +3213,22 @@ export const Repository = {
       if (!existing) throw new Error('Email job not found.');
       return existing;
     }
-    return this.executeJobDelivery(claimed, appUrl);
+    try {
+      return await this.executeJobDelivery(claimed, appUrl, deliverEmail);
+    } catch (error) {
+      return this.recordJobDeliveryFailure(claimed, error);
+    }
   },
 
   /**
    * Manual retry from admin settings interface. Enforces atomic locking, lease checking,
    * and the shared delivery pipeline.
    */
-  async retryNotification(jobId: string, appUrl?: string): Promise<EmailJob> {
+  async retryNotification(
+    jobId: string,
+    appUrl?: string,
+    deliverEmail: EmailDelivery = sendRenderedEmail
+  ): Promise<EmailJob> {
     const workerId = `worker_manual_${process.pid}_${Math.random().toString(36).substring(2, 7)}`;
     const claimed = await this.claimJobForDelivery(jobId, workerId);
     if (!claimed) {
@@ -3038,7 +3246,11 @@ export const Repository = {
       throw new Error('Notification job is not eligible for delivery retry.');
     }
 
-    return this.executeJobDelivery(claimed, appUrl);
+    try {
+      return await this.executeJobDelivery(claimed, appUrl, deliverEmail);
+    } catch (error) {
+      return this.recordJobDeliveryFailure(claimed, error);
+    }
   },
 
   /**

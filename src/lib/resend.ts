@@ -21,6 +21,29 @@ export const emailProvider = isGmailConfigured
 
 export const resend = isResendConfigured && resendApiKey ? new Resend(resendApiKey) : null;
 
+export function sanitizeEmailProviderError(error: unknown): string {
+  let message = error instanceof Error ? error.message : String(error);
+  for (const secret of [
+    process.env.AUTH_SECRET,
+    process.env.NEXTAUTH_SECRET,
+    gmailAppPassword,
+    resendApiKey,
+  ]) {
+    if (secret) message = message.split(secret).join('[redacted]');
+  }
+  message = message.replace(
+    /([A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,})/g,
+    '[redacted action token]'
+  );
+  if (/535|534|authentication|credentials|invalid login/i.test(message)) {
+    return 'Gmail SMTP authentication failed. Check GMAIL_USER and GMAIL_APP_PASSWORD in the deployment environment.';
+  }
+  if (/ETIMEDOUT|ECONNECTION|ENOTFOUND|ESOCKET|timeout/i.test(message)) {
+    return 'Could not connect to the email provider. Check the deployment network and email settings.';
+  }
+  return message.slice(0, 500);
+}
+
 async function deliverEmail(params: {
   to: string;
   subject: string;
@@ -97,8 +120,8 @@ async function deliverEmail(params: {
       providerMessageId: response.data?.id,
     };
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`[Email] ${emailProvider || 'Provider'} delivery failed:`, error);
+    const message = sanitizeEmailProviderError(error);
+    console.error(`[Email] ${emailProvider || 'Provider'} delivery failed: ${message}`);
     return {
       success: false,
       status: 'failed',
