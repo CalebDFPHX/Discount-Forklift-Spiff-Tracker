@@ -27,18 +27,20 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center justify-between h-16">
           {/* Brand Identity */}
           <div className="cursor-pointer group" onClick={() => onNavigate('rep')}>
-            <DiscountForkliftLogo size="md" />
+            <DiscountForkliftLogo
+              size="md"
+              canChangeBrandPhoto={Boolean(adminUser && adminRole === 'Administrator')}
+            />
           </div>
 
           {/* Navigation & Admin Auth */}
           <div className="flex items-center space-x-3">
-            {/* Database indicator */}
-            <div className="hidden sm:flex items-center text-xs text-gray-300 space-x-1.5 px-2.5 py-1 rounded bg-[#292929] border border-[#444444]">
-              <Database className={`w-3.5 h-3.5 ${isNeonConnected ? 'text-[#95EA00]' : 'text-amber-400'}`} />
-              <span className="text-[11px] font-medium">
-                {isNeonConnected ? 'Neon Connected' : 'Neon Preview Mode'}
-              </span>
-            </div>
+            {isNeonConnected && (
+              <div className="hidden sm:flex items-center text-xs text-gray-300 space-x-1.5 px-2.5 py-1 rounded bg-[#292929] border border-[#444444]">
+                <Database className="w-3.5 h-3.5 text-[#95EA00]" />
+                <span className="text-[11px] font-medium">Neon Connected</span>
+              </div>
+            )}
 
             {/* View Switchers */}
             {adminUser ? (

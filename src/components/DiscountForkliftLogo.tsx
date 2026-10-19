@@ -5,6 +5,7 @@ interface DiscountForkliftLogoProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg';
   showSubtitle?: boolean;
+  canChangeBrandPhoto?: boolean;
 }
 
 // Built-in high-fidelity photo badges for Discount Forklift
@@ -97,6 +98,7 @@ export const DiscountForkliftLogo: React.FC<DiscountForkliftLogoProps> = ({
   className = '',
   size = 'md',
   showSubtitle = true,
+  canChangeBrandPhoto = false,
 }) => {
   const [brandPhoto, setBrandPhoto] = useState<string | null>(() => {
     return localStorage.getItem('discount_forklift_brand_photo') || DEFAULT_BRAND_PHOTO;
@@ -144,6 +146,12 @@ export const DiscountForkliftLogo: React.FC<DiscountForkliftLogoProps> = ({
       window.removeEventListener('discount-forklift-photo-changed', handleStorageChange);
     };
   }, []);
+
+  useEffect(() => {
+    if (!canChangeBrandPhoto) {
+      setIsPhotoModalOpen(false);
+    }
+  }, [canChangeBrandPhoto]);
 
   const handleApplyPhoto = (src: string | null) => {
     if (src) {
@@ -258,34 +266,38 @@ export const DiscountForkliftLogo: React.FC<DiscountForkliftLogoProps> = ({
                     className={`${photoHeights[size]} w-auto max-w-[280px] object-contain rounded-lg shadow-sm border border-[#383838]/60 transition-transform duration-200 group-hover:brightness-105`}
                     referrerPolicy="no-referrer"
                   />
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsPhotoModalOpen(true);
-                    }}
-                    title="Change brand photo"
-                    aria-label="Change brand photo"
-                    className="ml-2 p-1.5 rounded-md bg-[#2b2b2b] hover:bg-[#3d3d3d] text-gray-300 hover:text-[#95EA00] border border-[#444444] transition-colors shadow-sm"
-                  >
-                    <Camera className="w-3.5 h-3.5" />
-                  </button>
+                  {canChangeBrandPhoto && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsPhotoModalOpen(true);
+                      }}
+                      title="Change brand photo"
+                      aria-label="Change brand photo"
+                      className="ml-2 p-1.5 rounded-md bg-[#2b2b2b] hover:bg-[#3d3d3d] text-gray-300 hover:text-[#95EA00] border border-[#444444] transition-colors shadow-sm"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               ) : (
                 <>
                   <span>Discount Forklift</span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsPhotoModalOpen(true);
-                    }}
-                    title="Change to photo"
-                    aria-label="Change to photo"
-                    className="p-1 rounded-md bg-[#2b2b2b] hover:bg-[#3d3d3d] text-gray-400 hover:text-[#95EA00] border border-[#444444] transition-colors shadow-sm"
-                  >
-                    <Camera className="w-3 h-3" />
-                  </button>
+                  {canChangeBrandPhoto && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsPhotoModalOpen(true);
+                      }}
+                      title="Change to photo"
+                      aria-label="Change to photo"
+                      className="p-1 rounded-md bg-[#2b2b2b] hover:bg-[#3d3d3d] text-gray-400 hover:text-[#95EA00] border border-[#444444] transition-colors shadow-sm"
+                    >
+                      <Camera className="w-3 h-3" />
+                    </button>
+                  )}
                 </>
               )}
             </span>
@@ -306,7 +318,7 @@ export const DiscountForkliftLogo: React.FC<DiscountForkliftLogoProps> = ({
       </div>
 
       {/* Change Brand Photo Modal */}
-      {isPhotoModalOpen && (
+      {canChangeBrandPhoto && isPhotoModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
           onClick={() => setIsPhotoModalOpen(false)}
@@ -463,4 +475,3 @@ export const DiscountForkliftLogo: React.FC<DiscountForkliftLogoProps> = ({
     </>
   );
 };
-
