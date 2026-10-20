@@ -1,5 +1,4 @@
-const VERCEL_DEPLOYMENT_HOST =
-  /-[a-z0-9]{8,12}-[^.]+(?:-projects)?\.vercel\.app$/i;
+const VERCEL_DEPLOYMENT_HOST = /-projects\.vercel\.app$/i;
 
 function normalizeAppUrl(name: string, value: string, isProduction: boolean): URL {
   let url: URL;
@@ -27,11 +26,13 @@ export function resolveCanonicalAppUrl(
   env: NodeJS.ProcessEnv = process.env
 ): string {
   const isProduction = env.NODE_ENV === 'production';
-  const candidates = [
+  const productionCandidates = [
     ['APP_URL', env.APP_URL],
     ['VERCEL_PROJECT_PRODUCTION_URL', env.VERCEL_PROJECT_PRODUCTION_URL],
-    ['NEXTAUTH_URL', env.NEXTAUTH_URL],
   ] as const;
+  const candidates = isProduction
+    ? productionCandidates
+    : [...productionCandidates, ['NEXTAUTH_URL', env.NEXTAUTH_URL] as const];
 
   for (const [name, value] of candidates) {
     if (!value?.trim()) continue;

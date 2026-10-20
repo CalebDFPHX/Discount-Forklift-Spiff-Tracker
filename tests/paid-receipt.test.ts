@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { beforeEach, describe, it } from 'node:test';
 
 process.env.NODE_ENV = 'test';
 process.env.AUTH_SECRET = 'unit-test-only-email-action-secret';
+process.env.DATABASE_URL = '';
 
 const { Repository, memoryStore } = await import('../src/lib/repository.js');
 const { resolveCanonicalAppUrl } = await import('../src/lib/appUrl.js');
@@ -15,6 +17,7 @@ const { createSessionToken, createCsrfToken } = await import('../src/lib/session
 const { default: app } = await import('../src/server/app.js');
 
 const APP_URL = 'https://spiff-test.example';
+const STABLE_PRODUCTION_URL = 'https://discount-forklift-spiff-tracker.vercel.app';
 const submissionId = 'SPF-2026-TEST01';
 
 function addFixture(assignedGmIds = 'gm_1,gm_2', status: 'Pending' | 'Approved' | 'Paid' = 'Pending') {
@@ -123,11 +126,152 @@ describe('canonical notification action URLs', () => {
     assert.equal(
       resolveCanonicalAppUrl({
         NODE_ENV: 'production',
-        APP_URL: 'https://spiff-production.example.com/',
+        APP_URL: STABLE_PRODUCTION_URL,
         VERCEL_PROJECT_PRODUCTION_URL: 'spiff-project.vercel.app',
+        NEXTAUTH_URL: 'https://deployment-hash-projects.vercel.app',
       }),
-      'https://spiff-production.example.com'
+      STABLE_PRODUCTION_URL
     );
+  });
+
+  it('initializes the production backend and serves the session endpoint with the stable URL', () => {
+    const script = `
+      const { default: app } = await import('./src/server/app.ts');
+      const server = app.listen(0, '127.0.0.1', async () => {
+        try {
+          const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/admin/session');
+          const body = await response.json();
+          if (response.status !== 200 || body.authenticated !== false) {
+            throw new Error('Session endpoint did not initialize correctly.');
+          }
+          const loginResponse = await fetch('http://127.0.0.1:' + server.address().port + '/api/admin/login', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({}),
+          });
+          if (loginResponse.status !== 400 && loginResponse.status !== 503) {
+            throw new Error('Login endpoint returned HTTP ' + loginResponse.status + '.');
+          }
+          console.log('backend and authentication endpoints initialized');
+        } catch (error) {
+          console.error(error.message);
+          process.exitCode = 1;
+        } finally {
+          server.close();
+        }
+      });
+    `;
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', '--input-type=module', '-e', script],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        timeout: 15_000,
+        env: {
+          ...process.env,
+          NODE_ENV: 'production',
+          APP_URL: STABLE_PRODUCTION_URL,
+          VERCEL_PROJECT_PRODUCTION_URL: '',
+          NEXTAUTH_URL: 'https://deployment-hash-projects.vercel.app',
+          VERCEL_URL: 'deployment-hash-projects.vercel.app',
+          DATABASE_URL: '',
+          AUTH_SECRET: 'unit-test-only-email-action-secret',
+        },
+      }
+    );
+    assert.equal(result.status, 0, `Production backend failed to initialize: ${result.stderr.slice(-1000)}`);
+    assert.match(result.stdout, /backend and authentication endpoints initialized/);
+  });
+
+  it('generates submission action links on the configured stable Production origin', async () => {
+    const approverId = 'approver_url_test';
+    const attachmentId = 'attachment_url_test';
+    const originalDispatchJob = Repository.dispatchJob;
+    let createdSubmissionId: string | undefined;
+    let createdJobId: string | undefined;
+    const stableOrigin = resolveCanonicalAppUrl({
+      NODE_ENV: 'production',
+      APP_URL: STABLE_PRODUCTION_URL,
+    });
+    memoryStore.spiffs = memoryStore.spiffs.filter((spiff) => spiff.id !== 'spiff_url_test');
+    memoryStore.spiffs.push({
+      id: 'spiff_url_test',
+      name: 'URL Test Spiff',
+      description: '',
+      eligibilityRequirements: '',
+      amountCents: 10000,
+      isActive: true,
+      displayOrder: 999,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    memoryStore.contacts = memoryStore.contacts.filter((contact) => contact.id !== approverId);
+    memoryStore.contacts.push({
+      id: approverId,
+      name: 'URL Test Approver',
+      email: 'approver@example.test',
+      role: 'Approving Manager',
+      branch: 'Test Branch',
+      isDefaultAccounting: false,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    memoryStore.attachments = memoryStore.attachments.filter((attachment) => attachment.id !== attachmentId);
+    memoryStore.attachments.push({
+      id: attachmentId,
+      storageKey: 'url-test-photo',
+      originalFilename: 'test.jpg',
+      contentType: 'image/jpeg',
+      fileSizeBytes: 1,
+      uploadStatus: 'pending',
+      uploadedAt: new Date().toISOString(),
+    });
+    Repository.dispatchJob = async (jobId) => {
+      createdJobId = jobId;
+      return memoryStore.emailJobs.find((job) => job.id === jobId)!;
+    };
+
+    try {
+      const { submission } = await Repository.createSubmission({
+        repId: 'rep_test',
+        spiffId: 'spiff_url_test',
+        liftName: 'URL Test Forklift',
+        serialSuffix: '4321',
+        saleDate: '2026-10-18',
+        attachmentId,
+        appUrl: stableOrigin,
+      });
+      createdSubmissionId = submission.id;
+      const job = memoryStore.emailJobs.find(
+        (emailJob) => emailJob.id === createdJobId
+      );
+      assert.ok(job);
+      const actionLinks = [...(job.renderedBodyHtml || '').matchAll(/href="([^"]*\/api\/email-actions\/[^"]+)"/g)]
+        .map((match) => match[1]);
+      assert.equal(actionLinks.length, 2);
+      assert.ok(actionLinks.every((link) => new URL(link).origin === STABLE_PRODUCTION_URL));
+
+      const receiptJob = await Repository.buildPaidReceiptJob(
+        (await Repository.getSubmissionById(submissionId))!,
+        memoryStore.contacts.find((contact) => contact.id === 'gm_1')!,
+        'admin@example.test',
+        '2026-10-19T12:00:00.000Z',
+        stableOrigin
+      );
+      const paidActionLink = [...receiptJob.renderedBodyHtml!.matchAll(/href="([^"]*\/api\/email-actions\/[^"]+)"/g)]
+        .map((match) => match[1]);
+      assert.equal(paidActionLink.length, 1);
+      assert.equal(new URL(paidActionLink[0]).origin, STABLE_PRODUCTION_URL);
+    } finally {
+      Repository.dispatchJob = originalDispatchJob;
+      memoryStore.emailJobs = memoryStore.emailJobs.filter((job) => job.id !== createdJobId);
+      memoryStore.submissions = memoryStore.submissions.filter((item) => item.id !== createdSubmissionId);
+      memoryStore.spiffs = memoryStore.spiffs.filter((spiff) => spiff.id !== 'spiff_url_test');
+      memoryStore.contacts = memoryStore.contacts.filter((contact) => contact.id !== approverId);
+      memoryStore.attachments = memoryStore.attachments.filter((attachment) => attachment.id !== attachmentId);
+    }
   });
 
   it('does not fall back to a deployment URL when Production URL configuration is missing', () => {
