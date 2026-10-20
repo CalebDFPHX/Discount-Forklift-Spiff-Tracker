@@ -57,6 +57,27 @@ const CANONICAL_APP_URL =
   process.env.NEXTAUTH_URL ||
   'https://discount-forklift-spiff-tracker-basxhlwz6-calebdfphxs-projects.vercel.app';
 
+const DEPLOYMENT_IDENTIFIER =
+  process.env.VERCEL_DEPLOYMENT_ID ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.VERCEL_URL ||
+  'local';
+
+function logApprovalHandlerEntry(
+  requestId: string,
+  entryPoint: 'email_action' | 'dashboard_decide' | 'dashboard_approve'
+): void {
+  console.info(
+    '[ApprovalHandler]',
+    JSON.stringify({
+      requestId,
+      deploymentId: DEPLOYMENT_IDENTIFIER,
+      entryPoint,
+      stage: 'approval_handler_entry',
+    })
+  );
+}
+
 // Middleware for parsing JSON with 12MB limit for direct photo buffers
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ extended: true, limit: '12mb' }));
@@ -643,6 +664,9 @@ app.get('/api/email-actions/:token', async (req, res) => {
     }
 
     const decisionText = token.decision === 'approve' ? 'approved' : 'denied';
+    if (token.decision === 'approve') {
+      logApprovalHandlerEntry(token.submissionId, 'email_action');
+    }
     const updated = await Repository.decideSubmission(
       token.submissionId,
       token.approverEmail,
@@ -812,6 +836,9 @@ app.post('/api/admin/submissions/:id/decide', requireAdmin, async (req, res) => 
   try {
     const adminUser = (req as any).adminUser;
     const { decision, reasonOrMessage, recipients } = req.body;
+    if (decision === 'approve') {
+      logApprovalHandlerEntry(req.params.id, 'dashboard_decide');
+    }
     const updated = await Repository.decideSubmission(req.params.id, adminUser, {
       decision,
       reasonOrMessage,
@@ -831,6 +858,7 @@ app.post('/api/admin/submissions/:id/decide', requireAdmin, async (req, res) => 
 app.post('/api/admin/submissions/:id/approve', requireAdmin, async (req, res) => {
   try {
     const adminUser = (req as any).adminUser;
+    logApprovalHandlerEntry(req.params.id, 'dashboard_approve');
     const updated = await Repository.approveSubmission(req.params.id, adminUser);
     const receiptNotifications = await Repository.getPaidReceiptNotificationResults(updated.id);
     res.json({ success: true, submission: updated, receiptNotifications });

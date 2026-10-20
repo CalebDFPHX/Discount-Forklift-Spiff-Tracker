@@ -449,7 +449,9 @@ describe('approved paid receipt notifications', () => {
     const originalInfo = console.info;
     const pipelineLogs: string[] = [];
     console.info = (...args: unknown[]) => {
-      if (args[0] === '[PaidReceiptPipeline]') pipelineLogs.push(String(args[1]));
+      if (args[0] === '[PaidReceiptPipeline]' || args[0] === '[ApprovalHandler]') {
+        pipelineLogs.push(JSON.stringify({ prefix: args[0], ...JSON.parse(String(args[1])) }));
+      }
     };
     const server = app.listen(0);
     try {
@@ -489,6 +491,15 @@ describe('approved paid receipt notifications', () => {
         )
       );
       const stages = pipelineLogs.map((log) => JSON.parse(log));
+      assert.ok(
+        stages.some(
+          (log) =>
+            log.prefix === '[ApprovalHandler]' &&
+            log.requestId === submissionId &&
+            log.entryPoint === 'dashboard_decide' &&
+            log.stage === 'approval_handler_entry'
+        )
+      );
       assert.ok(stages.some((log) => log.stage === 'gm_recipients_resolved'));
       assert.ok(stages.some((log) => log.stage === 'approval_transaction_committed'));
       assert.ok(stages.some((log) => log.stage === 'dispatch_finished'));
@@ -540,6 +551,13 @@ describe('approved paid receipt notifications', () => {
   it('uses the receipt flow for email-link approvals and records payment only on the paid link', async () => {
     const sentTo: string[] = [];
     const restoreDelivery = mockDecisionDelivery(sentTo);
+    const originalInfo = console.info;
+    const approvalHandlerLogs: string[] = [];
+    console.info = (...args: unknown[]) => {
+      if (args[0] === '[ApprovalHandler]') {
+        approvalHandlerLogs.push(JSON.stringify({ prefix: args[0], ...JSON.parse(String(args[1])) }));
+      }
+    };
     const server = app.listen(0);
     try {
       const address = server.address();
@@ -563,6 +581,17 @@ describe('approved paid receipt notifications', () => {
         'gm.two@example.test',
         'sales.rep@example.test',
       ]);
+      assert.ok(
+        approvalHandlerLogs.some((log) => {
+          const entry = JSON.parse(log);
+          return (
+            entry.requestId === submissionId &&
+            entry.entryPoint === 'email_action' &&
+            entry.stage === 'approval_handler_entry' &&
+            !log.includes(approvalToken)
+          );
+        })
+      );
 
       const receiptHtml = memoryStore.emailJobs.find(
         (job) =>
@@ -585,6 +614,7 @@ describe('approved paid receipt notifications', () => {
       assert.equal(repeatedPaymentResponse.status, 400);
       assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Paid');
     } finally {
+      console.info = originalInfo;
       restoreDelivery();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
