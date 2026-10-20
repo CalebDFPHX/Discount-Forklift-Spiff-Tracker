@@ -5,6 +5,7 @@ process.env.NODE_ENV = 'test';
 process.env.AUTH_SECRET = 'unit-test-only-email-action-secret';
 
 const { Repository, memoryStore } = await import('../src/lib/repository.js');
+const { resolveCanonicalAppUrl } = await import('../src/lib/appUrl.js');
 const { createEmailDecisionToken, verifyEmailDecisionToken } = await import('../src/lib/emailDecisionTokens.js');
 const {
   inspectSmtpRecipientAcceptance,
@@ -103,6 +104,44 @@ function mockDecisionDelivery(sentTo: string[]) {
 
 beforeEach(() => {
   addFixture();
+});
+
+describe('canonical notification action URLs', () => {
+  it('prefers the stable project Production URL when APP_URL is deployment-specific', () => {
+    assert.equal(
+      resolveCanonicalAppUrl({
+        NODE_ENV: 'production',
+        APP_URL: 'https://discount-forklift-spiff-tracker-basxhlwz6-calebdfphxs-projects.vercel.app',
+        VERCEL_PROJECT_PRODUCTION_URL: 'spiff-production.example.com',
+        VERCEL_URL: 'discount-forklift-spiff-tracker-ikilmhbhu-calebdfphxs-projects.vercel.app',
+      }),
+      'https://spiff-production.example.com'
+    );
+  });
+
+  it('uses an explicitly configured stable Production domain', () => {
+    assert.equal(
+      resolveCanonicalAppUrl({
+        NODE_ENV: 'production',
+        APP_URL: 'https://spiff-production.example.com/',
+        VERCEL_PROJECT_PRODUCTION_URL: 'spiff-project.vercel.app',
+      }),
+      'https://spiff-production.example.com'
+    );
+  });
+
+  it('does not fall back to a deployment URL when Production URL configuration is missing', () => {
+    assert.throws(
+      () =>
+        resolveCanonicalAppUrl({
+          NODE_ENV: 'production',
+          APP_URL: 'https://discount-forklift-spiff-tracker-basxhlwz6-calebdfphxs-projects.vercel.app',
+          NEXTAUTH_URL: 'https://discount-forklift-spiff-tracker-ikilmhbhu-calebdfphxs-projects.vercel.app',
+          VERCEL_URL: 'discount-forklift-spiff-tracker-ikilmhbhu-calebdfphxs-projects.vercel.app',
+        }),
+      /stable Production domain/
+    );
+  });
 });
 
 describe('approved paid receipt notifications', () => {

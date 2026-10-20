@@ -7,7 +7,6 @@ const fromEmail = process.env.RESEND_FROM_EMAIL || 'notifications@discountforkli
 const gmailUser = process.env.GMAIL_USER?.trim();
 const gmailAppPassword = process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, '');
 export const hasGmailConfiguration = Boolean(gmailUser || gmailAppPassword);
-const appUrl = process.env.APP_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
 
 export const isResendConfigured = Boolean(resendApiKey && resendApiKey.startsWith('re_'));
 export const isGmailConfigured = Boolean(gmailUser && gmailAppPassword);

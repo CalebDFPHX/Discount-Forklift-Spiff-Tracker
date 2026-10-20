@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Repository } from '../lib/repository.js';
+import { resolveCanonicalAppUrl } from '../lib/appUrl.js';
 import {
   validateImageMagicBytes,
   uploadPrivatePhoto,
@@ -49,13 +50,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 // Canonical Application URL - Never construct trusted notification links from arbitrary request headers
-const CANONICAL_APP_URL =
-  process.env.APP_URL ||
-  (process.env.VERCEL_PROJECT_PRODUCTION_URL
-    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-    : undefined) ||
-  process.env.NEXTAUTH_URL ||
-  'https://discount-forklift-spiff-tracker-basxhlwz6-calebdfphxs-projects.vercel.app';
+const CANONICAL_APP_URL = resolveCanonicalAppUrl();
 
 const DEPLOYMENT_IDENTIFIER =
   process.env.VERCEL_DEPLOYMENT_ID ||

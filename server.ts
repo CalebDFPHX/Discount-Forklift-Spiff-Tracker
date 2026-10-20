@@ -7,18 +7,13 @@ import { app, ensureInitialAdminFromEnv } from './src/server/app';
 import { isNeonConfigured } from './src/db/index';
 import { isResendConfigured } from './src/lib/resend';
 import { isBlobConfigured } from './src/lib/blob';
+import { resolveCanonicalAppUrl } from './src/lib/appUrl';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-const CANONICAL_APP_URL =
-  process.env.APP_URL ||
-  (process.env.VERCEL_PROJECT_PRODUCTION_URL
-    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-    : undefined) ||
-  process.env.NEXTAUTH_URL ||
-  'https://discount-forklift-spiff-tracker-basxhlwz6-calebdfphxs-projects.vercel.app';
+const CANONICAL_APP_URL = resolveCanonicalAppUrl();
 
 async function startServer() {
   // Run server-side seed before accepting traffic

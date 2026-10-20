@@ -7,6 +7,7 @@ import {
   sanitizeEmailProviderError,
 } from './resend.js';
 import { createEmailDecisionToken } from './emailDecisionTokens.js';
+import { resolveCanonicalAppUrl } from './appUrl.js';
 import { formatDollars, validateSerialSuffix } from './formatters.js';
 import { formatPhoenixDate, formatPhoenixDateTime, getPhoenixDateRangeUtcBounds } from './timezone.js';
 import { hashPassword, verifyPassword, validatePasswordStrength } from './auth.js';
@@ -27,13 +28,7 @@ import {
 
 export type { EmailTemplate, EmailTemplateVersion };
 
-const CANONICAL_APP_URL =
-  process.env.APP_URL ||
-  (process.env.VERCEL_PROJECT_PRODUCTION_URL
-    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-    : undefined) ||
-  process.env.NEXTAUTH_URL ||
-  'https://discount-forklift-spiff-tracker-basxhlwz6-calebdfphxs-projects.vercel.app';
+const CANONICAL_APP_URL = resolveCanonicalAppUrl();
 
 const DEPLOYMENT_IDENTIFIER =
   process.env.VERCEL_DEPLOYMENT_ID ||
