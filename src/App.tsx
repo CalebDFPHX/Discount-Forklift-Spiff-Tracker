@@ -273,6 +273,21 @@ export default function App() {
     refreshConfig();
   };
 
+  const handleReopenDeniedRequest = async (id: string, explanation: string) => {
+    const res = await adminFetch(`/api/admin/submissions/${id}/reopen-denied`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ explanation }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to reopen the denied request.');
+    setActiveDetailSubmission(data.submission);
+    setLedgerRefreshTrigger((prev) => prev + 1);
+    refreshConfig();
+  };
+
   const handleOpenPhoto = (submission: SpiffSubmission) => {
     if (submission.attachment) {
       setActivePhotoAttachment(submission.attachment);
@@ -533,6 +548,8 @@ export default function App() {
           onOpenDecisionModal={handleOpenDecision}
           onMarkPaid={handleMarkPaidRequest}
           onCorrect={handleCorrectRequest}
+          canReopenDenied={adminRole === 'Administrator'}
+          onReopenDenied={handleReopenDeniedRequest}
           onViewPhoto={handleOpenPhoto}
           canRecoverPaidReceipt={adminRole === 'Administrator'}
           onRecoverPaidReceipt={handleRecoverPaidReceipt}

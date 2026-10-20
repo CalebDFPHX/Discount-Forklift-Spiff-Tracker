@@ -70,7 +70,7 @@ function renderEmailDecisionButtons(
       <p style="margin:0 0 16px;color:#0f172a;font-size:15px;font-weight:700;">Approve or deny this request</p>
       <a href="${approveUrl}" style="display:inline-block;margin:0 6px 8px;padding:12px 24px;background:#15803d;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;">Approve</a>
       <a href="${denyUrl}" style="display:inline-block;margin:0 6px 8px;padding:12px 24px;background:#b91c1c;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;">Deny</a>
-      <p style="margin:12px 0 0;color:#64748b;font-size:11px;">These links decide the request immediately, are valid for 7 days, and only work while the request is pending. Denials are recorded as “Denied via email action.”</p>
+      <p style="margin:12px 0 0;color:#64748b;font-size:11px;">Each link opens a confirmation page and does not decide the request until you confirm. Links are valid for 7 days and only work while the request is pending. A reason is required to deny.</p>
     </div>`;
 }
 
@@ -84,7 +84,7 @@ function renderEmailPaidButton(
   return `
     <div style="max-width:600px;margin:24px auto;padding:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;text-align:center;font-family:Arial,sans-serif;">
       <a href="${root}/api/email-actions/${token}" style="display:inline-block;padding:12px 24px;background:#15803d;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:700;">Mark as Paid</a>
-      <p style="margin:12px 0 0;color:#64748b;font-size:11px;">This link records payment immediately, is valid for 7 days, and only works for approved requests. Anyone with access to this email link can use it.</p>
+      <p style="margin:12px 0 0;color:#64748b;font-size:11px;">This link opens a confirmation page; payment is recorded only after you confirm. It is valid for 7 days and only works for approved requests. Anyone with access to this email link can use it.</p>
     </div>`;
 }
 
@@ -2258,7 +2258,7 @@ export const Repository = {
 
     const createdJobs: EmailJob[] = [];
     for (const rec of recipientList) {
-      const jobKey = `job_decision_${id}_${rec.email}`;
+      const jobKey = `job_decision_${audit.id}_${rec.email}`;
       // STRICT ADMIN CHECK: Only recipients in Neon admin_users receive administrator links
       const isRecipientAdmin = authorizedAdminEmails.has(rec.email.toLowerCase());
 
@@ -2645,6 +2645,86 @@ export const Repository = {
     }
 
     return sub;
+  },
+
+  async reopenDeniedSubmission(
+    id: string,
+    adminUser: string,
+    explanation: string
+  ): Promise<SpiffSubmission> {
+    const cleanExplanation = explanation.trim();
+    if (!cleanExplanation) {
+      throw new Error('A detailed explanation is required to reopen a denied request.');
+    }
+
+    const now = new Date().toISOString();
+    const audit: AuditEvent = {
+      id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      submissionId: id,
+      action: 'correction',
+      performedBy: adminUser,
+      fieldChanged: 'status',
+      oldValue: 'Rejected (Denied)',
+      newValue: 'Pending',
+      explanation: cleanExplanation,
+      timestamp: now,
+    };
+
+    if (this.isLiveDatabaseConnected() && db) {
+      await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(schema.spiffSubmissions)
+          .set({
+            status: 'Pending',
+            rejectedAt: null,
+            rejectedBy: null,
+            rejectionReason: null,
+            decisionMessage: null,
+          })
+          .where(
+            and(
+              eq(schema.spiffSubmissions.id, id),
+              eq(schema.spiffSubmissions.status, 'Rejected')
+            )
+          )
+          .returning({ id: schema.spiffSubmissions.id });
+
+        if (!updated) {
+          throw new Error('Only a Denied request can be reopened as Pending.');
+        }
+
+        await tx.insert(schema.auditEvents).values({
+          id: audit.id,
+          submissionId: audit.submissionId,
+          action: audit.action,
+          performedBy: audit.performedBy,
+          fieldChanged: audit.fieldChanged,
+          oldValue: audit.oldValue,
+          newValue: audit.newValue,
+          explanation: audit.explanation,
+          timestamp: new Date(audit.timestamp),
+        });
+      });
+
+      return (await this.getSubmissionById(id))!;
+    }
+
+    const submission = memoryStore.submissions.find((item) => item.id === id);
+    if (!submission) throw new Error('Submission not found.');
+    if (submission.status !== 'Rejected') {
+      throw new Error('Only a Denied request can be reopened as Pending.');
+    }
+
+    submission.status = 'Pending';
+    submission.rejectedAt = null;
+    submission.rejectedBy = null;
+    submission.rejectionReason = null;
+    submission.decisionMessage = null;
+    memoryStore.auditEvents.unshift(audit);
+    return {
+      ...submission,
+      auditEvents: memoryStore.auditEvents.filter((event) => event.submissionId === id),
+    };
   },
 
   // ----------------------------------------------------

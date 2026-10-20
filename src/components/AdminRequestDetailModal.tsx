@@ -25,6 +25,8 @@ interface AdminRequestDetailModalProps {
   onOpenDecisionModal: (submission: SpiffSubmission, decision: 'approve' | 'deny') => void;
   onMarkPaid: (id: string) => Promise<void>;
   onCorrect: (id: string, updates: any, explanation: string) => Promise<void>;
+  canReopenDenied: boolean;
+  onReopenDenied: (id: string, explanation: string) => Promise<void>;
   onViewPhoto: (submission: SpiffSubmission) => void;
   canRecoverPaidReceipt: boolean;
   onRecoverPaidReceipt: (id: string) => Promise<PaidReceiptNotificationResult[]>;
@@ -39,6 +41,8 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
   onOpenDecisionModal,
   onMarkPaid,
   onCorrect,
+  canReopenDenied,
+  onReopenDenied,
   onViewPhoto,
   canRecoverPaidReceipt,
   onRecoverPaidReceipt,
@@ -52,6 +56,8 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
   const [editAmountDollars, setEditAmountDollars] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editExplanation, setEditExplanation] = useState('');
+  const [isReopeningDenied, setIsReopeningDenied] = useState(false);
+  const [reopenExplanation, setReopenExplanation] = useState('');
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -161,6 +167,26 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
     }
   };
 
+  const handleReopenDenied = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionError(null);
+    if (!reopenExplanation.trim()) {
+      setActionError('A detailed explanation is required to reopen a denied request.');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      await onReopenDenied(submission.id, reopenExplanation.trim());
+      setIsReopeningDenied(false);
+      setReopenExplanation('');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to reopen the denied request.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'Pending':
@@ -230,6 +256,50 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
               <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
               <span>{actionError}</span>
             </div>
+          )}
+
+          {isReopeningDenied && submission.status === 'Rejected' && (
+            <form
+              onSubmit={handleReopenDenied}
+              className="p-4 bg-[#242424] border border-amber-700/60 rounded-lg space-y-3"
+            >
+              <div>
+                <h4 className="text-sm font-bold text-amber-300">Reopen Denied Request</h4>
+                <p className="mt-1 text-xs text-gray-300">
+                  This returns the request to Pending and preserves the original denial in the audit log.
+                  No email is sent by reopening; a later approval will use the normal approval flow.
+                </p>
+              </div>
+              <label className="block text-xs font-semibold text-gray-200" htmlFor="reopen-explanation">
+                Required correction explanation
+              </label>
+              <textarea
+                id="reopen-explanation"
+                value={reopenExplanation}
+                onChange={(e) => setReopenExplanation(e.target.value)}
+                maxLength={1000}
+                rows={3}
+                required
+                className="w-full bg-[#1e1e1e] border border-[#444444] rounded px-3 py-2 text-xs text-white"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsReopeningDenied(false)}
+                  disabled={isProcessing}
+                  className="px-3 py-1.5 border border-[#444444] text-xs font-medium rounded text-gray-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-xs font-bold rounded text-white disabled:opacity-50"
+                >
+                  {isProcessing ? 'Reopening...' : 'Confirm Reopen as Pending'}
+                </button>
+              </div>
+            </form>
           )}
 
           {/* Potential Duplicate Banner */}
@@ -561,6 +631,17 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
               >
                 <Edit3 className="w-3.5 h-3.5" />
                 <span>Correct Details</span>
+              </button>
+            )}
+            {!isEditing && canReopenDenied && submission.status === 'Rejected' && (
+              <button
+                type="button"
+                onClick={() => setIsReopeningDenied(true)}
+                disabled={isProcessing}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium text-amber-200 bg-amber-950/40 border border-amber-700/60 rounded hover:bg-amber-900/50 transition-colors"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>Reopen as Pending</span>
               </button>
             )}
           </div>

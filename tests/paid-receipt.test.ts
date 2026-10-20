@@ -62,6 +62,7 @@ function addFixture(assignedGmIds = 'gm_1,gm_2', status: 'Pending' | 'Approved' 
     }
   );
   memoryStore.submissions = memoryStore.submissions.filter((item) => item.id !== submissionId);
+  memoryStore.auditEvents = memoryStore.auditEvents.filter((event) => event.submissionId !== submissionId);
   memoryStore.submissions.push({
     id: submissionId,
     repId: 'rep_test',
@@ -252,6 +253,10 @@ describe('canonical notification action URLs', () => {
         .map((match) => match[1]);
       assert.equal(actionLinks.length, 2);
       assert.ok(actionLinks.every((link) => new URL(link).origin === STABLE_PRODUCTION_URL));
+      assert.deepEqual(
+        actionLinks.map((link) => verifyEmailDecisionToken(new URL(link).pathname.split('/').pop()!)?.decision),
+        ['approve', 'deny']
+      );
 
       const receiptJob = await Repository.buildPaidReceiptJob(
         (await Repository.getSubmissionById(submissionId))!,
@@ -734,6 +739,17 @@ describe('approved paid receipt notifications', () => {
   it('uses the receipt flow for email-link approvals and records payment only on the paid link', async () => {
     const sentTo: string[] = [];
     const restoreDelivery = mockDecisionDelivery(sentTo);
+    memoryStore.contacts.push({
+      id: 'approver_email_test',
+      name: 'Email Approver',
+      email: 'approving.manager@example.test',
+      role: 'Approving Manager',
+      branch: 'Test Branch',
+      isDefaultAccounting: false,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
     const originalInfo = console.info;
     const approvalHandlerLogs: string[] = [];
     console.info = (...args: unknown[]) => {
@@ -755,9 +771,24 @@ describe('approved paid receipt notifications', () => {
       );
       const approvalBody = await approvalResponse.text();
       assert.equal(approvalResponse.status, 200, approvalBody);
-      assert.match(approvalBody, /Request .* approved/);
-      assert.match(approvalBody, /gm\.one@example\.test.*accepted/);
-      assert.match(approvalBody, /Spiff Approved Paid Receipt — v1 to gm\.one@example\.test, job job_/);
+      assert.match(approvalBody, /Simply opening this page does not change the request/);
+      assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Pending');
+      assert.equal(memoryStore.emailJobs.length, 0);
+      assert.equal(sentTo.length, 0);
+
+      const approvalPostResponse = await fetch(
+        `http://127.0.0.1:${address.port}/api/email-actions/${approvalToken}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ confirmation: 'approve' }),
+        }
+      );
+      const approvalPostBody = await approvalPostResponse.text();
+      assert.equal(approvalPostResponse.status, 200, approvalPostBody);
+      assert.match(approvalPostBody, /Request .* approved/);
+      assert.match(approvalPostBody, /gm\.one@example\.test.*accepted/);
+      assert.match(approvalPostBody, /Spiff Approved Paid Receipt — v1 to gm\.one@example\.test, job job_/);
       assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Approved');
       assert.deepEqual(sentTo.sort(), [
         'gm.one@example.test',
@@ -785,20 +816,242 @@ describe('approved paid receipt notifications', () => {
       assert.ok(paidToken);
       assert.equal(verifyEmailDecisionToken(paidToken)?.decision, 'paid');
 
-      const paymentResponse = await fetch(
+      const paidGetResponse = await fetch(
         `http://127.0.0.1:${address.port}/api/email-actions/${paidToken}`
+      );
+      assert.equal(paidGetResponse.status, 200);
+      assert.match(await paidGetResponse.text(), /Confirm Mark as Paid/);
+      assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Approved');
+
+      const paymentResponse = await fetch(
+        `http://127.0.0.1:${address.port}/api/email-actions/${paidToken}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ confirmation: 'paid' }),
+        }
       );
       assert.equal(paymentResponse.status, 200);
       assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Paid');
 
       const repeatedPaymentResponse = await fetch(
-        `http://127.0.0.1:${address.port}/api/email-actions/${paidToken}`
+        `http://127.0.0.1:${address.port}/api/email-actions/${paidToken}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ confirmation: 'paid' }),
+        }
       );
       assert.equal(repeatedPaymentResponse.status, 400);
       assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Paid');
     } finally {
       console.info = originalInfo;
       restoreDelivery();
+      memoryStore.contacts = memoryStore.contacts.filter((contact) => contact.id !== 'approver_email_test');
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it('keeps approval and denial-link GETs side-effect free and requires a reason for denial POST', async () => {
+    const sentTo: string[] = [];
+    const restoreDelivery = mockDecisionDelivery(sentTo);
+    memoryStore.contacts.push({
+      id: 'approver_scanner_test',
+      name: 'Scanner Test Approver',
+      email: 'scanner.approver@example.test',
+      role: 'Approving Manager',
+      branch: 'Test Branch',
+      isDefaultAccounting: false,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const server = app.listen(0);
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== 'string');
+      const approveToken = createEmailDecisionToken(
+        submissionId,
+        'approve',
+        'scanner.approver@example.test'
+      );
+      const denyToken = createEmailDecisionToken(
+        submissionId,
+        'deny',
+        'scanner.approver@example.test'
+      );
+
+      const scannerVisits = await Promise.all([
+        fetch(`http://127.0.0.1:${address.port}/api/email-actions/${approveToken}`),
+        fetch(`http://127.0.0.1:${address.port}/api/email-actions/${denyToken}`),
+      ]);
+      assert.deepEqual(scannerVisits.map((response) => response.status), [200, 200]);
+      assert.match(await scannerVisits[0].text(), /Confirm approve/);
+      assert.match(await scannerVisits[1].text(), /name="reason" required/);
+      assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Pending');
+      assert.equal(memoryStore.auditEvents.length, 0);
+      assert.equal(memoryStore.emailJobs.length, 0);
+      assert.deepEqual(sentTo, []);
+
+      const missingReason = await fetch(
+        `http://127.0.0.1:${address.port}/api/email-actions/${denyToken}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ confirmation: 'deny' }),
+        }
+      );
+      assert.equal(missingReason.status, 400);
+      assert.match(await missingReason.text(), /denial reason is required/i);
+      assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Pending');
+      assert.deepEqual(sentTo, []);
+
+      const denial = await fetch(
+        `http://127.0.0.1:${address.port}/api/email-actions/${denyToken}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ confirmation: 'deny', reason: 'Request details need correction.' }),
+        }
+      );
+      assert.equal(denial.status, 200, await denial.text());
+      assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Rejected');
+      assert.equal(memoryStore.auditEvents[0]?.explanation, 'Request details need correction.');
+      assert.deepEqual(sentTo, ['sales.rep@example.test']);
+
+      const repeatedApproval = await fetch(
+        `http://127.0.0.1:${address.port}/api/email-actions/${approveToken}`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ confirmation: 'approve' }),
+        }
+      );
+      assert.equal(repeatedApproval.status, 409);
+      assert.deepEqual(sentTo, ['sales.rep@example.test']);
+    } finally {
+      restoreDelivery();
+      memoryStore.contacts = memoryStore.contacts.filter((contact) => contact.id !== 'approver_scanner_test');
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
+  it('allows only Administrators to reopen a denial with an audit trail and no resend', async () => {
+    const sentTo: string[] = [];
+    const restoreDelivery = mockDecisionDelivery(sentTo);
+    const denied = await Repository.decideSubmission(
+      submissionId,
+      'manager@example.test',
+      {
+        decision: 'deny',
+        reasonOrMessage: 'Incorrectly denied by test.',
+        recipients: [],
+        appUrl: APP_URL,
+      },
+      async (message) => {
+        sentTo.push(message.to);
+        return successfulMock();
+      }
+    );
+    assert.equal(denied.status, 'Rejected');
+    const originalDenialAudit = memoryStore.auditEvents.find(
+      (event) => event.submissionId === submissionId && event.action === 'denied'
+    );
+    assert.ok(originalDenialAudit);
+    const emailsAfterDenial = memoryStore.emailJobs.length;
+    const deliveriesAfterDenial = sentTo.length;
+
+    const approverEmail = 'reopen.approver@example.test';
+    memoryStore.adminUsers.push({
+      id: 'reopen_approver_user',
+      email: approverEmail,
+      name: 'Approving Manager',
+      role: 'Approving Manager',
+      passwordHash: null,
+      isAuthorized: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const server = app.listen(0);
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== 'string');
+      const body = JSON.stringify({ explanation: 'Verified the denial resulted from an incorrect email-link action.' });
+
+      const managerToken = createSessionToken(approverEmail, 'Approving Manager', 'Approving Manager');
+      const forbidden = await fetch(
+        `http://127.0.0.1:${address.port}/api/admin/submissions/${submissionId}/reopen-denied`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            cookie: `spiff_admin_session=${managerToken}`,
+            'x-csrf-token': createCsrfToken(approverEmail),
+          },
+          body,
+        }
+      );
+      assert.equal(forbidden.status, 403);
+      assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Rejected');
+
+      const adminEmail = 'caleb@discountforkliftphoenix.com';
+      const adminToken = createSessionToken(adminEmail, 'Test Admin', 'Administrator');
+      const reopenedResponse = await fetch(
+        `http://127.0.0.1:${address.port}/api/admin/submissions/${submissionId}/reopen-denied`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            cookie: `spiff_admin_session=${adminToken}`,
+            'x-csrf-token': createCsrfToken(adminEmail),
+          },
+          body,
+        }
+      );
+      assert.equal(reopenedResponse.status, 200, await reopenedResponse.text());
+      const reopened = (await Repository.getSubmissionById(submissionId))!;
+      assert.equal(reopened.status, 'Pending');
+      assert.equal(reopened.rejectedAt, null);
+      assert.equal(reopened.rejectedBy, null);
+      assert.equal(reopened.rejectionReason, null);
+      assert.ok(reopened.auditEvents?.some((event) => event.id === originalDenialAudit.id));
+      assert.ok(
+        reopened.auditEvents?.some(
+          (event) =>
+            event.action === 'correction' &&
+            event.fieldChanged === 'status' &&
+            event.oldValue === 'Rejected (Denied)' &&
+            event.newValue === 'Pending' &&
+            event.performedBy === adminEmail
+        )
+      );
+      assert.equal(memoryStore.emailJobs.length, emailsAfterDenial);
+      assert.equal(sentTo.length, deliveriesAfterDenial);
+
+      await Repository.decideSubmission(
+        submissionId,
+        adminEmail,
+        { decision: 'approve', recipients: [], appUrl: APP_URL },
+        async (message) => {
+          sentTo.push(message.to);
+          return successfulMock();
+        }
+      );
+      const decisionJobs = memoryStore.emailJobs.filter(
+        (job) =>
+          job.submissionId === submissionId &&
+          (job.templateId === 'spiff_denied' || job.templateId === 'spiff_approved')
+      );
+      assert.equal(new Set(decisionJobs.map((job) => job.idempotencyKey)).size, decisionJobs.length);
+    } finally {
+      restoreDelivery();
+      memoryStore.adminUsers = memoryStore.adminUsers.filter(
+        (user) => user.id !== 'reopen_approver_user'
+      );
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });

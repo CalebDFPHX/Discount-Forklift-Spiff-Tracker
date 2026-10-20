@@ -182,7 +182,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
 
 function requireAdministrator(req: express.Request, res: express.Response, next: express.NextFunction) {
   if ((req as any).adminRole !== 'Administrator') {
-    return res.status(403).json({ error: 'Only an Administrator can permanently delete records.' });
+    return res.status(403).json({ error: 'Only an Administrator can perform this action.' });
   }
   next();
 }
@@ -626,10 +626,46 @@ app.post(
 // Protected Administrator Endpoints
 // ----------------------------------------------------
 
-// Email decision links are signed, expire after seven days, and can only decide pending requests.
+function renderEmailActionConfirmation(token: string, decision: 'approve' | 'deny' | 'paid'): string {
+  const action = decision === 'paid' ? 'mark this request as paid' : `${decision} this request`;
+  const reasonField =
+    decision === 'deny'
+      ? '<label for="reason">Denial reason</label><textarea id="reason" name="reason" required maxlength="1000" rows="4"></textarea>'
+      : '';
+  return `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Confirm request action</title></head>
+<body style="font-family:Arial,sans-serif;max-width:600px;margin:48px auto;padding:24px;color:#0f172a">
+  <h1>Confirm action</h1>
+  <p>Select the button below to ${action}. Simply opening this page does not change the request or send email.</p>
+  <form method="post" action="/api/email-actions/${encodeURIComponent(token)}">
+    <input type="hidden" name="confirmation" value="${decision}">
+    ${reasonField}
+    <button type="submit" style="margin-top:16px;padding:12px 20px;font-weight:700">Confirm ${decision === 'paid' ? 'Mark as Paid' : decision}</button>
+  </form>
+</body>
+</html>`;
+}
+
+async function isEmailActionAuthorized(
+  decision: 'approve' | 'deny' | 'paid',
+  email: string
+): Promise<boolean> {
+  const requiredRole = decision === 'paid' ? 'General Manager' : 'Approving Manager';
+  const normalizedEmail = email.trim().toLowerCase();
+  return (await Repository.getAllContacts()).some(
+    (contact) =>
+      contact.isActive &&
+      contact.role === requiredRole &&
+      contact.email.trim().toLowerCase() === normalizedEmail
+  );
+}
+
+// Signed email links are safe to prefetch: only an explicit POST can perform an action.
 app.get('/api/email-actions/:token', async (req, res) => {
   res.set('Cache-Control', 'no-store, max-age=0');
   res.set('X-Robots-Tag', 'noindex, nofollow');
+  res.set('Referrer-Policy', 'no-referrer');
 
   const token = verifyEmailDecisionToken(req.params.token);
   if (!token) {
@@ -637,59 +673,77 @@ app.get('/api/email-actions/:token', async (req, res) => {
   }
 
   try {
-    if (token.decision === 'paid') {
-      const manager = (await Repository.getAllContacts()).find(
-        (contact) =>
-          contact.isActive &&
-          contact.role === 'General Manager' &&
-          contact.email.trim().toLowerCase() === token.approverEmail
-      );
-      if (!manager) {
-        return res.status(403).type('text/plain').send('This payment link is no longer authorized.');
-      }
+    if (!(await isEmailActionAuthorized(token.decision, token.approverEmail))) {
+      return res.status(403).type('text/plain').send('This email action is no longer authorized.');
+    }
 
+    return res.status(200).type('html').send(renderEmailActionConfirmation(req.params.token, token.decision));
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unable to process this decision link.';
+    return res.status(500).type('text/plain').send(message);
+  }
+});
+
+app.post('/api/email-actions/:token', async (req, res) => {
+  res.set('Cache-Control', 'no-store, max-age=0');
+  res.set('X-Robots-Tag', 'noindex, nofollow');
+  res.set('Referrer-Policy', 'no-referrer');
+
+  const token = verifyEmailDecisionToken(req.params.token);
+  if (!token) {
+    return res.status(400).type('text/plain').send('This email decision link is invalid or has expired.');
+  }
+  if (req.body?.confirmation !== token.decision) {
+    return res.status(400).type('text/plain').send('Confirm this action using the button on the email action page.');
+  }
+  if (token.decision === 'deny') {
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    if (!reason) {
+      return res.status(400).type('text/plain').send('A denial reason is required.');
+    }
+    if (reason.length > 1000) {
+      return res.status(400).type('text/plain').send('The denial reason must be 1000 characters or fewer.');
+    }
+    req.body.reason = reason;
+  }
+
+  try {
+    if (!(await isEmailActionAuthorized(token.decision, token.approverEmail))) {
+      return res.status(403).type('text/plain').send('This email action is no longer authorized.');
+    }
+
+    if (token.decision === 'paid') {
       const updated = await Repository.markPaidSubmission(
         token.submissionId,
         `Email action (${token.approverEmail})`
       );
-      return res
-        .status(200)
-        .type('text/plain')
-        .send(`Request ${updated.id} has been marked as paid.`);
+      return res.status(200).type('text/plain').send(`Request ${updated.id} has been marked as paid.`);
     }
 
-    const decisionText = token.decision === 'approve' ? 'approved' : 'denied';
-    if (token.decision === 'approve') {
-      logApprovalHandlerEntry(token.submissionId, 'email_action');
-    }
-    const updated = await Repository.decideSubmission(
-      token.submissionId,
-      token.approverEmail,
-      {
-        decision: token.decision,
-        reasonOrMessage: token.decision === 'deny' ? 'Denied via email action' : undefined,
-        recipients: [],
-        appUrl: CANONICAL_APP_URL,
-      }
-    );
+    logApprovalHandlerEntry(token.submissionId, 'email_action');
+    const updated = await Repository.decideSubmission(token.submissionId, token.approverEmail, {
+      decision: token.decision,
+      reasonOrMessage: token.decision === 'deny' ? req.body.reason : undefined,
+      recipients: [],
+      appUrl: CANONICAL_APP_URL,
+    });
     const receiptNotifications =
       token.decision === 'approve'
         ? await Repository.getPaidReceiptNotificationResults(updated.id)
         : [];
     const receiptStatusText = receiptNotifications.length
       ? ` Paid receipt status: ${receiptNotifications
-          .map(
-              (receipt) => {
-                const templateName =
-                  getEmailTemplateDisplayName(receipt.templateId) || 'Unknown / Legacy';
-                const version =
-                  receipt.templateVersion === null ? '' : ` — v${receipt.templateVersion}`;
-                return `${templateName}${version} to ${receipt.recipientEmail}, job ${receipt.notificationJobId}: ${receipt.status}, ${receipt.attemptCount} attempts${receipt.errorMessage ? ` (${receipt.errorMessage})` : ''}${receipt.providerResponse ? ` [provider response: ${receipt.providerResponse}]` : ''}`;
-              }
-            )
-            .join('; ')}.`
+          .map((receipt) => {
+            const templateName =
+              getEmailTemplateDisplayName(receipt.templateId) || 'Unknown / Legacy';
+            const version =
+              receipt.templateVersion === null ? '' : ` — v${receipt.templateVersion}`;
+            return `${templateName}${version} to ${receipt.recipientEmail}, job ${receipt.notificationJobId}: ${receipt.status}, ${receipt.attemptCount} attempts${receipt.errorMessage ? ` (${receipt.errorMessage})` : ''}${receipt.providerResponse ? ` [provider response: ${receipt.providerResponse}]` : ''}`;
+          })
+          .join('; ')}.`
       : '';
 
+    const decisionText = token.decision === 'approve' ? 'approved' : 'denied';
     return res
       .status(200)
       .type('text/plain')
@@ -901,6 +955,26 @@ app.post('/api/admin/submissions/:id/correct', requireAdmin, async (req, res) =>
     res.status(400).json({ error: err.message });
   }
 });
+
+app.post(
+  '/api/admin/submissions/:id/reopen-denied',
+  requireAdmin,
+  requireAdministrator,
+  async (req, res) => {
+    try {
+      const explanation =
+        typeof req.body?.explanation === 'string' ? req.body.explanation : '';
+      const updated = await Repository.reopenDeniedSubmission(
+        req.params.id,
+        (req as any).adminUser,
+        explanation
+      );
+      res.json({ success: true, submission: updated, emailsSent: false });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+);
 
 // View attached photo
 app.get('/api/admin/attachments/:id/view', requireAdmin, async (req, res) => {
