@@ -35,6 +35,30 @@ const CANONICAL_APP_URL =
   process.env.NEXTAUTH_URL ||
   'https://discount-forklift-spiff-tracker-basxhlwz6-calebdfphxs-projects.vercel.app';
 
+const DEPLOYMENT_IDENTIFIER =
+  process.env.VERCEL_DEPLOYMENT_ID ||
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.VERCEL_URL ||
+  'local';
+
+function logPaidReceiptPipeline(
+  submissionId: string,
+  stage: string,
+  jobId?: string,
+  details: Record<string, string | number | null> = {}
+): void {
+  console.info(
+    '[PaidReceiptPipeline]',
+    JSON.stringify({
+      requestId: submissionId,
+      deploymentId: DEPLOYMENT_IDENTIFIER,
+      receiptJobId: jobId || null,
+      stage,
+      ...details,
+    })
+  );
+}
+
 function renderEmailDecisionButtons(
   baseUrl: string,
   submissionId: string,
@@ -1861,7 +1885,9 @@ export const Repository = {
     approvedAt: string,
     appUrl: string
   ): Promise<EmailJob> {
+    const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const template = await this.getEmailTemplate('spiff_approved_paid_receipt');
+    logPaidReceiptPipeline(submission.id, 'receipt_template_loaded', jobId);
     const rendered = renderEmailTemplate(
       template,
       {
@@ -1883,8 +1909,13 @@ export const Repository = {
       false
     );
     const email = manager.email.trim().toLowerCase();
+    const renderedBodyHtml = appendEmailActionContent(
+      rendered.bodyHtml,
+      renderEmailPaidButton(appUrl, submission.id, email)
+    );
+    logPaidReceiptPipeline(submission.id, 'receipt_template_rendered', jobId);
     return {
-      id: `job_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      id: jobId,
       submissionId: submission.id,
       jobType: 'decision_result',
       recipientEmail: email,
@@ -1897,10 +1928,7 @@ export const Repository = {
       templateId: template.id,
       templateVersion: template.version,
       renderedSubject: rendered.subject,
-      renderedBodyHtml: appendEmailActionContent(
-        rendered.bodyHtml,
-        renderEmailPaidButton(appUrl, submission.id, email)
-      ),
+      renderedBodyHtml,
       eventPayload: JSON.stringify({
         originalDecision: 'Approved',
         decisionBy: adminUser,
@@ -1943,16 +1971,24 @@ export const Repository = {
     const submission = await this.getSubmissionById(submissionId);
     if (!submission) throw new Error('Submission not found.');
     if (submission.status === 'Paid') {
+      logPaidReceiptPipeline(submission.id, 'recovery_skipped_paid');
       return this.getPaidReceiptNotificationResults(submissionId);
     }
     if (submission.status !== 'Approved' || !submission.approvedAt) {
       throw new Error('A paid receipt can only be recovered for a request that is already Approved.');
     }
+    logPaidReceiptPipeline(submission.id, 'recovery_started');
 
     let managers: NotificationContact[];
     try {
       managers = await this.getAssignedActiveGeneralManagers(submission.repId);
+      logPaidReceiptPipeline(submission.id, 'recovery_gm_recipients_resolved', undefined, {
+        recipientCount: managers.length,
+      });
     } catch (error) {
+      logPaidReceiptPipeline(submission.id, 'recovery_gm_recipient_resolution_failed', undefined, {
+        error: sanitizeEmailProviderError(error),
+      });
       const existing = await this.getPaidReceiptNotificationResults(submissionId);
       if (existing.length === 0) throw error;
       const guidance = sanitizeEmailProviderError(error);
@@ -2012,6 +2048,15 @@ export const Repository = {
 
         jobs = await this.getPaidReceiptNotificationResults(submissionId);
         existing = jobs.find((result) => result.recipientEmail.trim().toLowerCase() === email);
+        if (existing) {
+          logPaidReceiptPipeline(submission.id, 'recovery_job_created_or_reused', existing.notificationJobId, {
+            status: existing.status,
+          });
+        }
+      } else {
+        logPaidReceiptPipeline(submission.id, 'recovery_existing_job_found', existing.notificationJobId, {
+          status: existing.status,
+        });
       }
 
       if (!existing) {
@@ -2021,15 +2066,32 @@ export const Repository = {
       }
 
       if (existing.status === 'queued' || existing.status === 'failed') {
+        logPaidReceiptPipeline(submission.id, 'recovery_dispatch_started', existing.notificationJobId, {
+          status: existing.status,
+        });
         try {
           const job = existing.status === 'queued'
             ? await this.dispatchJob(existing.notificationJobId, appUrl, deliverEmail)
             : await this.retryNotification(existing.notificationJobId, appUrl, deliverEmail);
           existing.status = job.status;
           existing.errorMessage = job.errorMessage || null;
+          logPaidReceiptPipeline(submission.id, 'recovery_dispatch_finished', existing.notificationJobId, {
+            status: job.status,
+            attemptCount: job.attemptCount,
+            error: job.errorMessage ? sanitizeEmailProviderError(job.errorMessage) : null,
+          });
         } catch (error) {
-          actionErrors.set(existing.notificationJobId, sanitizeEmailProviderError(error));
+          const safeError = sanitizeEmailProviderError(error);
+          actionErrors.set(existing.notificationJobId, safeError);
+          logPaidReceiptPipeline(submission.id, 'recovery_dispatch_failed', existing.notificationJobId, {
+            error: safeError,
+          });
         }
+      } else {
+        logPaidReceiptPipeline(submission.id, 'recovery_existing_job_not_resent', existing.notificationJobId, {
+          status: existing.status,
+          attemptCount: existing.attemptCount,
+        });
       }
     }
 
@@ -2167,9 +2229,20 @@ export const Repository = {
     // Approval results go only to the submitting rep; the assigned GM gets a separate paid receipt.
     const templateId = isApprove ? 'spiff_approved' : 'spiff_denied';
     const template = await this.getEmailTemplate(templateId);
-    const paidReceiptRecipients = isApprove
-      ? await this.getAssignedActiveGeneralManagers(sub.repId)
-      : [];
+    let paidReceiptRecipients: NotificationContact[] = [];
+    if (isApprove) {
+      try {
+        paidReceiptRecipients = await this.getAssignedActiveGeneralManagers(sub.repId);
+        logPaidReceiptPipeline(id, 'gm_recipients_resolved', undefined, {
+          recipientCount: paidReceiptRecipients.length,
+        });
+      } catch (error) {
+        logPaidReceiptPipeline(id, 'gm_recipient_resolution_failed', undefined, {
+          error: sanitizeEmailProviderError(error),
+        });
+        throw error;
+      }
+    }
 
     // Immutable event payload preserved across all subsequent job retries
     const eventPayloadObj = {
@@ -2242,14 +2315,22 @@ export const Repository = {
 
     if (isApprove) {
       for (const manager of paidReceiptRecipients) {
-        const emailJob = await this.buildPaidReceiptJob(
-          sub,
-          manager,
-          adminUser,
-          approvedAt!,
-          baseUrl.replace(/\/+$/, '')
-        );
-        createdJobs.push(emailJob);
+        try {
+          const emailJob = await this.buildPaidReceiptJob(
+            sub,
+            manager,
+            adminUser,
+            approvedAt!,
+            baseUrl.replace(/\/+$/, '')
+          );
+          createdJobs.push(emailJob);
+          logPaidReceiptPipeline(id, 'receipt_job_built', emailJob.id);
+        } catch (error) {
+          logPaidReceiptPipeline(id, 'receipt_job_build_failed', undefined, {
+            error: sanitizeEmailProviderError(error),
+          });
+          throw error;
+        }
       }
     }
 
@@ -2308,6 +2389,13 @@ export const Repository = {
         }
       });
     }
+    if (isApprove) {
+      for (const job of createdJobs) {
+        if (job.templateId === 'spiff_approved_paid_receipt') {
+          logPaidReceiptPipeline(id, 'approval_transaction_committed', job.id);
+        }
+      }
+    }
 
     // Update memory store copy
     const memSub = memoryStore.submissions.find((s) => s.id === id);
@@ -2336,14 +2424,32 @@ export const Repository = {
     // Dispatch all recipients independently after commit so a slow email cannot delay another.
     await Promise.all(
       createdJobs.map(async (job) => {
+        const isPaidReceipt = job.templateId === 'spiff_approved_paid_receipt';
+        if (isPaidReceipt) {
+          logPaidReceiptPipeline(id, 'dispatch_started', job.id);
+        }
         try {
           const result = await this.dispatchJob(job.id, baseUrl, deliverEmail);
+          if (isPaidReceipt) {
+            logPaidReceiptPipeline(id, 'dispatch_finished', job.id, {
+              status: result.status,
+              attemptCount: result.attemptCount,
+              error: result.errorMessage
+                ? sanitizeEmailProviderError(result.errorMessage)
+                : null,
+            });
+          }
           if (result.status === 'failed') {
             console.error(
               `[NotificationWorker] Job ${job.id} (${job.templateId || 'Decision'}) failed: ${result.errorMessage || 'Unknown delivery error.'}`
             );
           }
         } catch (err) {
+          if (isPaidReceipt) {
+            logPaidReceiptPipeline(id, 'dispatch_threw', job.id, {
+              error: sanitizeEmailProviderError(err),
+            });
+          }
           console.error(
             `[NotificationWorker] Job ${job.id} (${job.templateId || 'Decision'}) dispatch error: ${sanitizeEmailProviderError(err)}`
           );
@@ -3257,7 +3363,18 @@ export const Repository = {
     if (!claimed) {
       const existing = await this.getJobById(jobId);
       if (!existing) throw new Error('Email job not found.');
+      if (existing.templateId === 'spiff_approved_paid_receipt') {
+        logPaidReceiptPipeline(existing.submissionId, 'claim_not_acquired', jobId, {
+          status: existing.status,
+        });
+      }
       return existing;
+    }
+    if (claimed.templateId === 'spiff_approved_paid_receipt') {
+      logPaidReceiptPipeline(claimed.submissionId, 'claim_acquired', jobId, {
+        status: claimed.status,
+        attemptCount: claimed.attemptCount,
+      });
     }
     try {
       return await this.executeJobDelivery(claimed, appUrl, deliverEmail);

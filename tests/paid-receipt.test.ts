@@ -446,6 +446,11 @@ describe('approved paid receipt notifications', () => {
 
     const sentTo: string[] = [];
     const restoreDelivery = mockDecisionDelivery(sentTo);
+    const originalInfo = console.info;
+    const pipelineLogs: string[] = [];
+    console.info = (...args: unknown[]) => {
+      if (args[0] === '[PaidReceiptPipeline]') pipelineLogs.push(String(args[1]));
+    };
     const server = app.listen(0);
     try {
       const address = server.address();
@@ -483,7 +488,23 @@ describe('approved paid receipt notifications', () => {
             receipt.templateId === 'spiff_approved_paid_receipt'
         )
       );
+      const stages = pipelineLogs.map((log) => JSON.parse(log));
+      assert.ok(stages.some((log) => log.stage === 'gm_recipients_resolved'));
+      assert.ok(stages.some((log) => log.stage === 'approval_transaction_committed'));
+      assert.ok(stages.some((log) => log.stage === 'dispatch_finished'));
+      assert.ok(
+        stages
+          .filter((log) => log.stage === 'dispatch_finished')
+          .every(
+            (log) =>
+              log.requestId === submissionId &&
+              log.deploymentId &&
+              log.receiptJobId &&
+              log.status === 'accepted'
+          )
+      );
     } finally {
+      console.info = originalInfo;
       restoreDelivery();
       memoryStore.adminUsers = memoryStore.adminUsers.filter(
         (user) => user.email.toLowerCase() !== approverEmail
