@@ -10,6 +10,7 @@ const {
   inspectSmtpRecipientAcceptance,
   sanitizeEmailProviderError,
 } = await import('../src/lib/resend.js');
+const { createSessionToken, createCsrfToken } = await import('../src/lib/sessionAuth.js');
 const { default: app } = await import('../src/server/app.js');
 
 const APP_URL = 'https://spiff-test.example';
@@ -87,6 +88,18 @@ const successfulMock = async () => ({
   status: 'accepted' as const,
   providerMessageId: 'mock-provider-id',
 });
+
+function mockDecisionDelivery(sentTo: string[]) {
+  const originalDecideSubmission = Repository.decideSubmission;
+  Repository.decideSubmission = (id, adminUser, input) =>
+    originalDecideSubmission.call(Repository, id, adminUser, input, async (message) => {
+      sentTo.push(message.to);
+      return successfulMock();
+    });
+  return () => {
+    Repository.decideSubmission = originalDecideSubmission;
+  };
+}
 
 beforeEach(() => {
   addFixture();
@@ -416,6 +429,71 @@ describe('approved paid receipt notifications', () => {
     assert.equal(memoryStore.emailJobs.some((job) => job.submissionId === submissionId), false);
   });
 
+  it('automatically creates and dispatches the receipt through dashboard approval for an Approving Manager', async () => {
+    const approverEmail = 'approving.manager@example.test';
+    memoryStore.adminUsers = memoryStore.adminUsers.filter(
+      (user) => user.email.toLowerCase() !== approverEmail
+    );
+    memoryStore.adminUsers.push({
+      id: 'approving_manager_test',
+      email: approverEmail,
+      name: 'Test Approving Manager',
+      role: 'Approving Manager',
+      isAuthorized: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const sentTo: string[] = [];
+    const restoreDelivery = mockDecisionDelivery(sentTo);
+    const server = app.listen(0);
+    try {
+      const address = server.address();
+      assert.ok(address && typeof address !== 'string');
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/admin/submissions/${submissionId}/decide`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${createSessionToken(
+              approverEmail,
+              'Test Approving Manager',
+              'Approving Manager'
+            )}`,
+            'x-csrf-token': createCsrfToken(approverEmail),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ decision: 'approve', recipients: [] }),
+        }
+      );
+      const body = await response.json();
+
+      assert.equal(response.status, 200, JSON.stringify(body));
+      assert.equal(body.submission.status, 'Approved');
+      assert.deepEqual(sentTo.sort(), [
+        'gm.one@example.test',
+        'gm.two@example.test',
+        'sales.rep@example.test',
+      ]);
+      assert.equal(body.receiptNotifications.length, 2);
+      assert.ok(
+        body.receiptNotifications.every(
+          (receipt: { status: string; templateId: string }) =>
+            receipt.status === 'accepted' &&
+            receipt.templateId === 'spiff_approved_paid_receipt'
+        )
+      );
+    } finally {
+      restoreDelivery();
+      memoryStore.adminUsers = memoryStore.adminUsers.filter(
+        (user) => user.email.toLowerCase() !== approverEmail
+      );
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
   it('records payment only on the separate Mark as Paid operation and only once', async () => {
     await Repository.decideSubmission(submissionId, 'admin@example.test', {
       decision: 'approve',
@@ -439,6 +517,8 @@ describe('approved paid receipt notifications', () => {
   });
 
   it('uses the receipt flow for email-link approvals and records payment only on the paid link', async () => {
+    const sentTo: string[] = [];
+    const restoreDelivery = mockDecisionDelivery(sentTo);
     const server = app.listen(0);
     try {
       const address = server.address();
@@ -446,17 +526,22 @@ describe('approved paid receipt notifications', () => {
       const approvalToken = createEmailDecisionToken(
         submissionId,
         'approve',
-        'approver@example.test'
+        'approving.manager@example.test'
       );
       const approvalResponse = await fetch(
         `http://127.0.0.1:${address.port}/api/email-actions/${approvalToken}`
       );
       const approvalBody = await approvalResponse.text();
-      assert.equal(approvalResponse.status, 200);
+      assert.equal(approvalResponse.status, 200, approvalBody);
       assert.match(approvalBody, /Request .* approved/);
-      assert.match(approvalBody, /gm\.one@example\.test.*failed/);
+      assert.match(approvalBody, /gm\.one@example\.test.*accepted/);
       assert.match(approvalBody, /Spiff Approved Paid Receipt — v1 to gm\.one@example\.test, job job_/);
       assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Approved');
+      assert.deepEqual(sentTo.sort(), [
+        'gm.one@example.test',
+        'gm.two@example.test',
+        'sales.rep@example.test',
+      ]);
 
       const receiptHtml = memoryStore.emailJobs.find(
         (job) =>
@@ -479,6 +564,7 @@ describe('approved paid receipt notifications', () => {
       assert.equal(repeatedPaymentResponse.status, 400);
       assert.equal((await Repository.getSubmissionById(submissionId))?.status, 'Paid');
     } finally {
+      restoreDelivery();
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
