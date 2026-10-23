@@ -43,6 +43,13 @@
       "when": 1792447200000,
       "tag": "0005_gmail_recipient_diagnostics",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792797997351,
+      "tag": "0006_submission_branch_snapshot",
+      "breakpoints": true
     }
   ]
 }

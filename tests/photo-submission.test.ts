@@ -10,6 +10,7 @@ delete process.env.BLOB_READ_WRITE_TOKEN;
 const { Repository, memoryStore } = await import('../src/lib/repository.js');
 const { createSessionToken } = await import('../src/lib/sessionAuth.js');
 const { deleteBlobPhoto } = await import('../src/lib/blob.js');
+const { getRepsForBranch, retainRepForBranch } = await import('../src/lib/branchAssignments.js');
 const { createElement } = await import('react');
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { PhotoPreviewModal } = await import('../src/components/PhotoPreviewModal.js');
@@ -26,6 +27,7 @@ const { default: app } = await import('../src/server/app.js');
 const testRepId = 'photo_test_rep';
 const testSpiffId = 'photo_test_spiff';
 const testApproverId = 'photo_test_approver';
+const testBranchId = 'br_photo_test';
 const testSubmissionIds = new Set<string>();
 const testAttachmentIds = new Set<string>();
 const testStorageKeys = new Set<string>();
@@ -39,11 +41,21 @@ const jpegBytes = Buffer.from([
 function resetFixtures() {
   const now = new Date().toISOString();
   memoryStore.reps = memoryStore.reps.filter((rep) => rep.id !== testRepId);
+  memoryStore.branches = memoryStore.branches.filter((branch) => branch.id !== testBranchId);
   memoryStore.reps.push({
     id: testRepId,
     name: 'Photo Test Rep',
     email: 'photo-rep@example.test',
     branch: 'Photo Test Branch',
+    isActive: true,
+    displayOrder: 999,
+    createdAt: now,
+    updatedAt: now,
+  });
+  memoryStore.branches = memoryStore.branches.filter((branch) => branch.id !== testBranchId);
+  memoryStore.branches.push({
+    id: testBranchId,
+    name: 'Photo Test Branch',
     isActive: true,
     displayOrder: 999,
     createdAt: now,
@@ -110,6 +122,7 @@ async function uploadTestPhoto(baseUrl: string): Promise<string> {
 function submissionInput(attachmentIds: string[]) {
   return {
     repId: testRepId,
+    branchId: testBranchId,
     spiffId: testSpiffId,
     liftName: 'Unit Test Lift',
     serialSuffix: 'XY99',
@@ -155,6 +168,23 @@ afterEach(async () => {
 });
 
 describe('photo attachment limits and form state', () => {
+  it('filters active reps by the selected active branch and clears an ineligible rep on branch change', () => {
+    const testRep = memoryStore.reps.find((rep) => rep.id === testRepId)!;
+    const otherRep = {
+      ...testRep,
+      id: 'photo_test_other_branch_rep',
+      branch: 'Tucson Branch',
+    };
+    const inactiveRep = { ...testRep, id: 'photo_test_inactive_rep', isActive: false };
+    const branches = memoryStore.branches;
+    assert.deepEqual(
+      getRepsForBranch([testRep, otherRep, inactiveRep], branches, testBranchId).map((rep) => rep.id),
+      [testRepId]
+    );
+    assert.equal(retainRepForBranch(testRepId, testBranchId, [testRep], branches), testRepId);
+    assert.equal(retainRepForBranch(testRepId, 'br_tucson', [testRep], branches), '');
+  });
+
   it('requires at least one photo, allows five, and blocks a sixth addition', () => {
     assert.match(getPhotoCountError(0) || '', /attach a sale photo/i);
     assert.equal(getPhotoCountError(1), null);
@@ -200,12 +230,26 @@ describe('photo attachment limits and form state', () => {
 });
 
 describe('photo submission and reviewer access', () => {
+  it('rejects a submission when the rep is assigned to a different branch', async () => {
+    await withServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/submissions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...submissionInput(['not-uploaded-test-photo']),
+          branchId: 'br_tucson',
+        }),
+      });
+      assert.equal(response.status, 400);
+      assert.match((await response.json()).error, /not assigned to the selected branch/i);
+    });
+  });
+
   it('rejects no-photo submissions and submits one selected photo', async () => {
     await assert.rejects(
       Repository.createSubmission(submissionInput([])),
       /attach a sale photo/i
     );
-
     await withServer(async (baseUrl) => {
       const noPhotoResponse = await fetch(`${baseUrl}/api/submissions`, {
         method: 'POST',
@@ -223,6 +267,8 @@ describe('photo submission and reviewer access', () => {
       });
       const body = await response.json();
       assert.equal(response.status, 200, JSON.stringify(body));
+      assert.equal(body.submission.branchId, testBranchId);
+      assert.equal(body.submission.snapshotBranchName, 'Photo Test Branch');
       assert.equal(body.submission.attachments.length, 1);
       assert.equal(body.submission.attachment.id, attachmentId);
       assert.equal(body.submission.attachments[0].submissionId, body.submission.id);
@@ -266,6 +312,7 @@ describe('photo submission and reviewer access', () => {
       });
       assert.equal(detailsResponse.status, 200);
       const detailsBody = await detailsResponse.json();
+      assert.equal(detailsBody.submission.snapshotBranchName, 'Photo Test Branch');
       assert.deepEqual(detailsBody.submission.attachments.map((attachment: { id: string }) => attachment.id), sixAttachmentIds.slice(0, 5));
 
       const ledgerResponse = await fetch(`${baseUrl}/api/admin/submissions`, {
@@ -276,6 +323,7 @@ describe('photo submission and reviewer access', () => {
       const ledgerSubmission = ledgerBody.submissions.find(
         (submission: { id: string }) => submission.id === submissionId
       );
+      assert.equal(ledgerSubmission.snapshotBranchName, 'Photo Test Branch');
       assert.deepEqual(
         ledgerSubmission.attachments.map((attachment: { id: string }) => attachment.id),
         sixAttachmentIds.slice(0, 5)

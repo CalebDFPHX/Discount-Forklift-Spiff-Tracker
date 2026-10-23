@@ -191,6 +191,7 @@ export interface SpiffSubmission {
   id: string;
   idempotencyKey?: string | null;
   repId: string;
+  branchId?: string | null;
   spiffId: string;
   liftName: string;
   serialSuffix: string;
@@ -199,6 +200,7 @@ export interface SpiffSubmission {
   status: 'Pending' | 'Approved' | 'Rejected' | 'Paid'; // Rejected is displayed as 'Denied' in UI
   snapshotRepName: string;
   snapshotRepEmail?: string | null;
+  snapshotBranchName?: string | null;
   snapshotSpiffName: string;
   snapshotEligibilityRequirements: string;
   snapshotAmountCents: number;
@@ -1260,6 +1262,7 @@ export const Repository = {
   // ----------------------------------------------------
   async createSubmission(input: {
     repId: string;
+    branchId: string;
     spiffId: string;
     liftName: string;
     serialSuffix: string;
@@ -1281,6 +1284,7 @@ export const Repository = {
     }
 
     // 1. Validate fields on server
+    if (!input.branchId) throw new Error('Branch is required.');
     if (!input.repId) throw new Error('Sales rep is required.');
     if (!input.spiffId) throw new Error('Eligible spiff is required.');
     if (!input.liftName || !input.liftName.trim()) throw new Error('Lift name / model is required.');
@@ -1297,6 +1301,13 @@ export const Repository = {
     const rep = allReps.find((r) => r.id === input.repId);
     if (!rep) throw new Error('Selected sales rep does not exist.');
     if (!rep.isActive) throw new Error('Selected sales rep is not currently active.');
+
+    const branches = await this.getActiveBranches();
+    const branch = branches.find((candidate) => candidate.id === input.branchId);
+    if (!branch) throw new Error('Selected branch does not exist or is not currently active.');
+    if (rep.branch?.trim() !== branch.name) {
+      throw new Error('Selected sales rep is not assigned to the selected branch.');
+    }
 
     // User Requirement: Require a valid rep email before a rep can submit a new request
     if (!rep.email || !rep.email.trim()) {
@@ -1386,6 +1397,7 @@ export const Repository = {
       id: submissionId,
       idempotencyKey: input.idempotencyKey || null,
       repId: rep.id,
+      branchId: branch.id,
       spiffId: spiff.id,
       liftName: input.liftName.trim(),
       serialSuffix: cleanSerial,
@@ -1394,6 +1406,7 @@ export const Repository = {
       status: 'Pending',
       snapshotRepName: rep.name,
       snapshotRepEmail: rep.email.trim().toLowerCase(), // Saved as immutable snapshot
+      snapshotBranchName: branch.name,
       snapshotSpiffName: spiff.name,
       snapshotEligibilityRequirements: spiff.eligibilityRequirements,
       snapshotAmountCents: serverAmountCents,
@@ -1489,6 +1502,7 @@ export const Repository = {
           id: newSubmission.id,
           idempotencyKey: newSubmission.idempotencyKey,
           repId: newSubmission.repId,
+          branchId: newSubmission.branchId,
           spiffId: newSubmission.spiffId,
           liftName: newSubmission.liftName,
           serialSuffix: newSubmission.serialSuffix,
@@ -1497,6 +1511,7 @@ export const Repository = {
           status: newSubmission.status,
           snapshotRepName: newSubmission.snapshotRepName,
           snapshotRepEmail: newSubmission.snapshotRepEmail,
+          snapshotBranchName: newSubmission.snapshotBranchName,
           snapshotSpiffName: newSubmission.snapshotSpiffName,
           snapshotEligibilityRequirements: newSubmission.snapshotEligibilityRequirements,
           snapshotAmountCents: newSubmission.snapshotAmountCents,

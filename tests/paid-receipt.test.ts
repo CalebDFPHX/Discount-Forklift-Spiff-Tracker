@@ -34,6 +34,15 @@ function addFixture(assignedGmIds = 'gm_1,gm_2', status: 'Pending' | 'Approved' 
     createdAt: now,
     updatedAt: now,
   });
+  memoryStore.branches = memoryStore.branches.filter((branch) => branch.id !== 'br_test');
+  memoryStore.branches.push({
+    id: 'br_test',
+    name: 'Test Branch',
+    isActive: true,
+    displayOrder: 999,
+    createdAt: now,
+    updatedAt: now,
+  });
   memoryStore.contacts = memoryStore.contacts.filter(
     (contact) => contact.id !== 'gm_1' && contact.id !== 'gm_2'
   );
@@ -237,6 +246,7 @@ describe('canonical notification action URLs', () => {
     try {
       const { submission } = await Repository.createSubmission({
         repId: 'rep_test',
+        branchId: 'br_test',
         spiffId: 'spiff_url_test',
         liftName: 'URL Test Forklift',
         serialSuffix: '4321',

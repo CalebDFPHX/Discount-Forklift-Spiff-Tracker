@@ -332,11 +332,18 @@ async function runVerification() {
   console.log('\n--- 7. Submissions, Transactions, & Recipient Routing ---');
 
   const reps = await Repository.getActiveReps();
+  const activeBranches = await Repository.getActiveBranches();
   const spiffs = await Repository.getActiveSpiffs();
   assert('Active reps available', reps.length > 0);
+  assert('An active branch has assigned active reps', activeBranches.some((branch) =>
+    reps.some((rep) => rep.branch?.trim() === branch.name)
+  ));
   assert('Active spiffs available', spiffs.length > 0);
 
-  const testRep = reps[0];
+  const testBranch = activeBranches.find((branch) =>
+    reps.some((rep) => rep.branch?.trim() === branch.name)
+  )!;
+  const testRep = reps.find((rep) => rep.branch?.trim() === testBranch.name)!;
   const testSpiff = spiffs[0];
   const attId = `att_${Date.now()}`;
 
@@ -350,6 +357,7 @@ async function runVerification() {
 
   const subResult = await Repository.createSubmission({
     repId: testRep.id,
+    branchId: testBranch.id,
     spiffId: testSpiff.id,
     liftName: 'Toyota 8FGCU25 Cushion',
     serialSuffix: '0042',
@@ -411,6 +419,7 @@ async function runVerification() {
   // Idempotent submission returns existing record without creating duplicate
   const duplicateSub = await Repository.createSubmission({
     repId: testRep.id,
+    branchId: testBranch.id,
     spiffId: testSpiff.id,
     liftName: 'Toyota 8FBCU25 Electric',
     serialSuffix: '1024',
@@ -426,6 +435,7 @@ async function runVerification() {
   try {
     await Repository.createSubmission({
       repId: testRep.id,
+      branchId: testBranch.id,
       spiffId: testSpiff.id,
       liftName: 'Forklift B',
       serialSuffix: '9999',
@@ -725,4 +735,3 @@ runVerification().catch((err) => {
   console.error('Verification failed with unexpected error:', err);
   process.exit(1);
 });
-

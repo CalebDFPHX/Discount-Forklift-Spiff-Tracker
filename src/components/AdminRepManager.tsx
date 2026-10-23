@@ -47,7 +47,7 @@ export const AdminRepManager: React.FC<AdminRepManagerProps> = ({
     setEditingRep(null);
     setRepName('');
     setRepEmail('');
-    setBranch('Phoenix - Main Yard');
+    setBranch('');
     setSelectedGmIds(generalManagers.length > 0 ? [generalManagers[0].id] : []);
     setDisplayOrder(String(reps.length + 1));
     setError(null);
@@ -401,7 +401,7 @@ export const AdminRepManager: React.FC<AdminRepManagerProps> = ({
                   {branch && !branches.some((b) => b.name === branch) && (
                     <option value={branch}>{branch} (Current)</option>
                   )}
-                  {branches.map((b) => (
+                  {branches.filter((b) => b.isActive || b.name === branch).map((b) => (
                     <option key={b.id} value={b.name}>
                       {b.name} {b.code ? `(${b.code})` : ''} {!b.isActive ? '(Inactive)' : ''}
                     </option>

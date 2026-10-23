@@ -57,6 +57,7 @@ export const spiffSubmissions = pgTable(
     id: varchar('id', { length: 64 }).primaryKey(), // e.g. SPF-2026-ABCD
     idempotencyKey: varchar('idempotency_key', { length: 128 }).unique(),
     repId: varchar('rep_id', { length: 64 }).notNull().references(() => salesReps.id),
+    branchId: varchar('branch_id', { length: 64 }).references(() => branches.id, { onDelete: 'set null' }),
     spiffId: varchar('spiff_id', { length: 64 }).notNull().references(() => spiffs.id),
     liftName: varchar('lift_name', { length: 255 }).notNull(),
     serialSuffix: varchar('serial_suffix', { length: 4 }).notNull(), // Exactly 4 chars, preserves leading zeros like '0042'
@@ -67,6 +68,7 @@ export const spiffSubmissions = pgTable(
     // Snapshots: frozen at submission time so future changes do not rewrite history
     snapshotRepName: varchar('snapshot_rep_name', { length: 255 }).notNull(),
     snapshotRepEmail: varchar('snapshot_rep_email', { length: 255 }), // Snapshot of submitting rep email
+    snapshotBranchName: varchar('snapshot_branch_name', { length: 128 }),
     snapshotSpiffName: varchar('snapshot_spiff_name', { length: 255 }).notNull(),
     snapshotEligibilityRequirements: text('snapshot_eligibility_requirements').notNull(),
     snapshotAmountCents: integer('snapshot_amount_cents').notNull(),

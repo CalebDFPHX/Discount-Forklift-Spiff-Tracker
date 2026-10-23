@@ -4,7 +4,8 @@ import { SalePhotoUpload } from './SalePhotoUpload';
 import { formatDollars, validateSerialSuffix } from '../lib/formatters';
 import { getPhoenixTodayString } from '../lib/timezone';
 import { getPhotoCountError } from '../lib/photoAttachments';
-import { SalesRep, Spiff, SpiffSubmission } from '../lib/repository';
+import { Branch, SalesRep, Spiff, SpiffSubmission } from '../lib/repository';
+import { getRepsForBranch, retainRepForBranch } from '../lib/branchAssignments';
 
 interface RepSubmissionFormProps {
   onSubmissionSuccess: (submission: SpiffSubmission) => void;
@@ -16,10 +17,12 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
   onAdminLoginClick,
 }) => {
   const [reps, setReps] = useState<SalesRep[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [spiffs, setSpiffs] = useState<Spiff[]>([]);
   const [isLoadingConfig, setIsLoadingConfig] = useState(true);
 
   // Form Fields
+  const [selectedBranchId, setSelectedBranchId] = useState('');
   const [selectedRepId, setSelectedRepId] = useState('');
   const [liftName, setLiftName] = useState('');
   const [serialSuffix, setSerialSuffix] = useState('');
@@ -34,14 +37,16 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
   const [formError, setFormError] = useState<string | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => `idem_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
 
-  // Fetch active reps & spiffs
+  // Fetch active branches, reps, and spiffs
   const loadConfig = async () => {
     setIsLoadingConfig(true);
     try {
-      const [repsRes, spiffsRes] = await Promise.all([
+      const [branchesRes, repsRes, spiffsRes] = await Promise.all([
+        fetch('/api/branches').then((r) => r.json()),
         fetch('/api/reps').then((r) => r.json()),
         fetch('/api/spiffs').then((r) => r.json()),
       ]);
+      setBranches(branchesRes.branches || []);
       setReps(repsRes.reps || []);
       setSpiffs(spiffsRes.spiffs || []);
     } catch (err) {
@@ -57,6 +62,7 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
 
   const selectedSpiff = spiffs.find((s) => s.id === selectedSpiffId);
   const selectedRep = reps.find((r) => r.id === selectedRepId);
+  const branchReps = getRepsForBranch(reps, branches, selectedBranchId);
 
   // Serial input handler: force uppercase, max 4 chars
   const handleSerialChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,6 +75,10 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
     setFormError(null);
 
     // Client-side quick checks
+    if (!selectedBranchId) {
+      setFormError('Please select your branch.');
+      return;
+    }
     if (!selectedRepId) {
       setFormError('Please select your sales representative name.');
       return;
@@ -114,6 +124,7 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           repId: selectedRepId,
+          branchId: selectedBranchId,
           spiffId: selectedSpiffId,
           liftName: liftName.trim(),
           serialSuffix: serialCheck.normalized,
@@ -156,7 +167,7 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
   }
 
   // Requirement: "If no reps or spiffs have been configured, show a helpful message rather than an unusable form."
-  if (reps.length === 0 || spiffs.length === 0) {
+  if (branches.length === 0 || reps.length === 0 || spiffs.length === 0) {
     return (
       <div className="max-w-xl mx-auto my-12 p-8 bg-[#2d2d2d] border border-[#444444] rounded-xl shadow-lg text-center">
         <div className="w-12 h-12 bg-amber-950/60 text-amber-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-800">
@@ -164,8 +175,10 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
         </div>
         <h2 className="text-lg font-bold text-white mb-2">Setup Required by Administrator</h2>
         <p className="text-sm text-gray-300 mb-6 leading-relaxed">
-          {reps.length === 0 && spiffs.length === 0
+          {branches.length === 0 && reps.length === 0 && spiffs.length === 0
             ? 'No sales representatives or spiff programs have been added to the system yet.'
+            : branches.length === 0
+            ? 'No active branches are currently configured.'
             : reps.length === 0
             ? 'No active sales representatives are currently configured.'
             : 'No active spiff programs are currently available for submission.'}
@@ -217,7 +230,35 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
           </div>
         )}
 
-        {/* 1. Sales Rep Name */}
+        {/* 1. Branch */}
+        <div>
+          <label htmlFor="branchSelect" className="block text-sm font-semibold text-white mb-1.5">
+            Branch <span className="text-rose-400">*</span>
+          </label>
+          <select
+            id="branchSelect"
+            value={selectedBranchId}
+            onChange={(e) => {
+              const nextBranchId = e.target.value;
+              setSelectedBranchId(nextBranchId);
+              setSelectedRepId((currentRepId) =>
+                retainRepForBranch(currentRepId, nextBranchId, reps, branches)
+              );
+              setFormError(null);
+            }}
+            className="w-full bg-[#1e1e1e] border border-[#444444] rounded-lg px-3.5 py-2.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#95EA00] focus:border-[#95EA00] transition-colors shadow-inner"
+            required
+          >
+            <option value="" className="text-gray-400">Select your branch...</option>
+            {branches.filter((branch) => branch.isActive).map((branch) => (
+              <option key={branch.id} value={branch.id} className="bg-[#1e1e1e] text-white">
+                {branch.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* 2. Sales Rep Name */}
         <div>
           <label htmlFor="repSelect" className="block text-sm font-semibold text-white mb-1.5">
             Sales Representative <span className="text-rose-400">*</span>
@@ -231,14 +272,22 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
             }}
             className="w-full bg-[#1e1e1e] border border-[#444444] rounded-lg px-3.5 py-2.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#95EA00] focus:border-[#95EA00] transition-colors shadow-inner"
             required
+            disabled={!selectedBranchId}
           >
-            <option value="" className="text-gray-400">Select your name...</option>
-            {reps.map((r) => (
+            <option value="" className="text-gray-400">
+              {selectedBranchId ? 'Select your name...' : 'Select a branch first...'}
+            </option>
+            {branchReps.map((r) => (
               <option key={r.id} value={r.id} className="bg-[#1e1e1e] text-white">
                 {r.name} {r.branch ? `(${r.branch})` : ''} {!r.email ? '— [Email Required]' : ''}
               </option>
             ))}
           </select>
+          {selectedBranchId && branchReps.length === 0 && (
+            <p className="mt-1.5 text-xs text-amber-300">
+              No active sales reps are assigned to this branch. Ask an administrator to update Rep Management.
+            </p>
+          )}
 
           {/* Submitting rep email status display */}
           {selectedRep && (

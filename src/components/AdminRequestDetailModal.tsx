@@ -438,6 +438,10 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
                     <span className="text-gray-400">Sales Rep:</span>
                     <span className="font-semibold text-white">{submission.snapshotRepName}</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Branch:</span>
+                    <span className="font-semibold text-white">{submission.snapshotBranchName || '—'}</span>
+                  </div>
                   {submission.snapshotRepEmail && (
                     <div className="flex justify-between">
                       <span className="text-gray-400">Rep Email:</span>

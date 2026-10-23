@@ -382,6 +382,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
                     <ArrowUpDown className="w-3 h-3 text-gray-400" />
                   </div>
                 </th>
+                <th className="py-3 px-3">Branch</th>
                 <th className="py-3 px-3">Forklift Model</th>
                 <th className="py-3 px-3">Serial (Last 4)</th>
                 <th className="py-3 px-3">Spiff Program</th>
@@ -423,14 +424,14 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
             <tbody className="divide-y divide-[#383838] text-gray-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={14} className="py-12 text-center text-gray-400">
+                  <td colSpan={15} className="py-12 text-center text-gray-400">
                     <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-[#95EA00]" />
                     <span>Loading ledger records...</span>
                   </td>
                 </tr>
               ) : submissions.length === 0 ? (
                 <tr>
-                  <td colSpan={14} className="py-12 text-center text-gray-400">
+                  <td colSpan={15} className="py-12 text-center text-gray-400">
                     <p className="font-semibold text-sm text-gray-200">No matching spiff requests found</p>
                     <p className="text-xs text-gray-400 mt-1">Try clearing filters or submit a new spiff from the rep form.</p>
                   </td>
@@ -468,6 +469,11 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
                           </span>
                         )}
                       </div>
+                    </td>
+
+                    {/* Branch */}
+                    <td className="py-3 px-3 whitespace-nowrap text-gray-300">
+                      {sub.snapshotBranchName || '—'}
                     </td>
 
                     {/* Lift Name */}

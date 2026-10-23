@@ -585,6 +585,7 @@ app.post(
     try {
       const {
         repId,
+        branchId,
         spiffId,
         liftName,
         serialSuffix,
@@ -608,6 +609,7 @@ app.post(
 
       const result = await Repository.createSubmission({
         repId,
+        branchId,
         spiffId,
         liftName,
         serialSuffix,
@@ -1074,6 +1076,7 @@ app.get('/api/admin/export/csv', requireAdmin, async (req, res) => {
     const headers = [
       'Request ID',
       'Sales Rep',
+      'Branch',
       'Forklift Model',
       'Serial Suffix',
       'Spiff Program',
@@ -1092,6 +1095,7 @@ app.get('/api/admin/export/csv', requireAdmin, async (req, res) => {
     const rows = submissions.map((s) => [
       s.id,
       `"${s.snapshotRepName.replace(/"/g, '""')}"`,
+      `"${(s.snapshotBranchName || '').replace(/"/g, '""')}"`,
       `"${s.liftName.replace(/"/g, '""')}"`,
       `'${s.serialSuffix}`,
       `"${s.snapshotSpiffName.replace(/"/g, '""')}"`,
