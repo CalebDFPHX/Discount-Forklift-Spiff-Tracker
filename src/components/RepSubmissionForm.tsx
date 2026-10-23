@@ -321,7 +321,6 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
           <input
             id="liftName"
             type="text"
-            placeholder="e.g. Toyota 8FGU25 5,000lb Cushion or Cat 2C5000"
             value={liftName}
             onChange={(e) => setLiftName(e.target.value)}
             className="w-full bg-[#1e1e1e] border border-[#444444] rounded-lg px-3.5 py-2.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#95EA00] focus:border-[#95EA00] shadow-inner"
@@ -350,9 +349,6 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
                 required
               />
             </div>
-            <p className="text-[11px] text-gray-400 mt-1">
-              Exact 4 letters/numbers. Preserves leading zeros (e.g. 0042, 9A12).
-            </p>
           </div>
 
           <div>
@@ -429,7 +425,6 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
           <textarea
             id="notes"
             rows={3}
-            placeholder="Add delivery info, customer invoice number, or financing partner notes..."
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             className="w-full bg-[#1e1e1e] border border-[#444444] rounded-lg px-3.5 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#95EA00] focus:border-[#95EA00] shadow-inner"
