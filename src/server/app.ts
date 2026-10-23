@@ -12,6 +12,7 @@ import {
   MAX_FILE_SIZE_BYTES,
   isBlobConfigured,
 } from '../lib/blob.js';
+import { getPhotoCountError } from '../lib/photoAttachments.js';
 import {
   createSessionToken,
   verifySessionToken,
@@ -589,12 +590,20 @@ app.post(
         serialSuffix,
         saleDate,
         notes,
+        attachmentIds,
         attachmentId,
         idempotencyKey,
       } = req.body;
 
-      if (!attachmentId) {
-        return res.status(400).json({ error: 'Please attach a sale photo before submitting your spiff request.' });
+      const requestedAttachmentIds = attachmentIds ?? (attachmentId ? [attachmentId] : []);
+      if (!Array.isArray(requestedAttachmentIds)) {
+        return res.status(400).json({
+          error: 'Please attach a sale photo before submitting your spiff request.',
+        });
+      }
+      const photoCountError = getPhotoCountError(requestedAttachmentIds.length);
+      if (photoCountError) {
+        return res.status(400).json({ error: photoCountError });
       }
 
       const result = await Repository.createSubmission({
@@ -604,7 +613,7 @@ app.post(
         serialSuffix,
         saleDate,
         notes,
-        attachmentId,
+        attachmentIds: requestedAttachmentIds,
         idempotencyKey,
         appUrl: CANONICAL_APP_URL,
       });

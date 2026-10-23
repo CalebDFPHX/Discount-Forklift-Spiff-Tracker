@@ -288,9 +288,9 @@ export default function App() {
     refreshConfig();
   };
 
-  const handleOpenPhoto = (submission: SpiffSubmission) => {
-    if (submission.attachment) {
-      setActivePhotoAttachment(submission.attachment);
+  const handleOpenPhoto = (submission: SpiffSubmission, attachment = submission.attachments?.[0] || submission.attachment) => {
+    if (attachment) {
+      setActivePhotoAttachment(attachment);
       setActivePhotoRequestId(submission.id);
     }
   };

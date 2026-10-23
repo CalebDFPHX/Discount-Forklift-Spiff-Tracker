@@ -103,7 +103,11 @@ export const SubmissionSuccessModal: React.FC<SubmissionSuccessModalProps> = ({
           <div className="flex justify-between py-2.5 px-3">
             <span className="text-gray-400">Photo Attachment</span>
             <span className="font-semibold text-[#95EA00]">
-              {submission.attachment ? `Verified & Attached (${submission.attachment.originalFilename})` : 'None'}
+              {submission.attachments?.length
+                ? `Verified & Attached (${submission.attachments.length} photos)`
+                : submission.attachment
+                  ? `Verified & Attached (${submission.attachment.originalFilename})`
+                  : 'None'}
             </span>
           </div>
         </div>

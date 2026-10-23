@@ -3,6 +3,7 @@ import { Truck, CheckCircle, AlertTriangle, ShieldCheck, Info, Loader2, ArrowRig
 import { SalePhotoUpload } from './SalePhotoUpload';
 import { formatDollars, validateSerialSuffix } from '../lib/formatters';
 import { getPhoenixTodayString } from '../lib/timezone';
+import { getPhotoCountError } from '../lib/photoAttachments';
 import { SalesRep, Spiff, SpiffSubmission } from '../lib/repository';
 
 interface RepSubmissionFormProps {
@@ -25,7 +26,8 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
   const [saleDate, setSaleDate] = useState(getPhoenixTodayString());
   const [selectedSpiffId, setSelectedSpiffId] = useState('');
   const [notes, setNotes] = useState('');
-  const [attachmentId, setAttachmentId] = useState<string | null>(null);
+  const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
+  const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
 
   // Submission States
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -94,8 +96,13 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
       setFormError('Please select the eligible spiff program.');
       return;
     }
-    if (!attachmentId) {
-      setFormError('Please attach a sale photo before submitting your spiff request.');
+    const photoCountError = getPhotoCountError(attachmentIds.length);
+    if (photoCountError) {
+      setFormError(photoCountError);
+      return;
+    }
+    if (isUploadingPhotos) {
+      setFormError('Please wait for all sale photos to finish uploading.');
       return;
     }
 
@@ -112,7 +119,7 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
           serialSuffix: serialCheck.normalized,
           saleDate,
           notes: notes.trim() || undefined,
-          attachmentId: attachmentId || undefined,
+          attachmentIds,
           idempotencyKey,
         }),
       });
@@ -124,7 +131,7 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
       }
 
       // Confirm the photo has uploaded successfully, passed validation, and been linked to the saved request
-      if (!data.submission || !data.submission.attachment) {
+      if (!data.submission || !(data.submission.attachments?.length || data.submission.attachment)) {
         throw new Error('Photo attachment was not successfully verified and linked to the saved request.');
       }
 
@@ -257,10 +264,10 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
           )}
         </div>
 
-        {/* 2. Forklift Model / Lift Name */}
+        {/* 2. Lift Name */}
         <div>
           <label htmlFor="liftName" className="block text-sm font-semibold text-white mb-1.5">
-            Forklift Model / Lift Name <span className="text-rose-400">*</span>
+            Lift Name <span className="text-rose-400">*</span>
           </label>
           <input
             id="liftName"
@@ -311,7 +318,6 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
               className="w-full bg-[#1e1e1e] border border-[#444444] rounded-lg px-3.5 py-2.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-[#95EA00] focus:border-[#95EA00] shadow-inner"
               required
             />
-            <p className="text-[11px] text-gray-400 mt-1">America/Phoenix date closed.</p>
           </div>
         </div>
 
@@ -362,9 +368,8 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
         {/* 5. Sale Photo Attachment */}
         <SalePhotoUpload
           repId={selectedRepId}
-          onAttachmentSuccess={(attId) => setAttachmentId(attId)}
-          onAttachmentRemoved={() => setAttachmentId(null)}
-          initialAttachmentId={attachmentId}
+          onAttachmentsChange={setAttachmentIds}
+          onUploadStateChange={setIsUploadingPhotos}
         />
 
         {/* 6. Notes */}
@@ -390,7 +395,7 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
 
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isUploadingPhotos}
             className="w-full sm:w-auto order-1 sm:order-2 inline-flex items-center justify-center space-x-2 px-6 py-3 bg-[#A559BD] hover:bg-[#934da9] active:bg-[#7e3895] text-white font-bold text-sm rounded-lg shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {isSubmitting ? (

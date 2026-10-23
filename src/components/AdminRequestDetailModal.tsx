@@ -13,9 +13,10 @@ import {
   Loader2,
   Mail,
 } from 'lucide-react';
-import { PaidReceiptNotificationResult, SpiffSubmission } from '../lib/repository';
+import { Attachment, PaidReceiptNotificationResult, SpiffSubmission } from '../lib/repository';
 import { formatDollars, parseDollarsToCents, validateSerialSuffix } from '../lib/formatters';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone';
+import { getSubmissionPhotos } from '../lib/photoAttachments';
 
 interface AdminRequestDetailModalProps {
   submission: SpiffSubmission | null;
@@ -27,7 +28,7 @@ interface AdminRequestDetailModalProps {
   onCorrect: (id: string, updates: any, explanation: string) => Promise<void>;
   canReopenDenied: boolean;
   onReopenDenied: (id: string, explanation: string) => Promise<void>;
-  onViewPhoto: (submission: SpiffSubmission) => void;
+  onViewPhoto: (submission: SpiffSubmission, attachment?: Attachment) => void;
   canRecoverPaidReceipt: boolean;
   onRecoverPaidReceipt: (id: string) => Promise<PaidReceiptNotificationResult[]>;
   onRetryPaidReceipt: (jobId: string) => Promise<PaidReceiptNotificationResult>;
@@ -66,6 +67,7 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
   const [retryingReceiptId, setRetryingReceiptId] = useState<string | null>(null);
 
   if (!isOpen || !submission) return null;
+  const attachments = getSubmissionPhotos(submission);
 
   const startEditing = () => {
     setEditLiftName(submission.liftName);
@@ -462,7 +464,7 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
             </div>
           )}
 
-          {/* Notes & Photo Attachment Row */}
+          {/* Notes & Photo Attachments Row */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 bg-[#242424] border border-[#444444] rounded-lg">
               <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Rep Notes</h4>
@@ -471,28 +473,31 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
               </p>
             </div>
 
-            <div className="p-4 bg-[#242424] border border-[#444444] rounded-lg flex items-center justify-between">
+            <div className="p-4 bg-[#242424] border border-[#444444] rounded-lg">
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-1">Attached Sale Photo</h4>
-                <p className="text-xs text-gray-300">
-                  {submission.attachment ? (
-                    <span className="text-[#95EA00] font-medium">Photo attached ({submission.attachment.originalFilename})</span>
-                  ) : (
-                    <span className="text-gray-400">No photo</span>
-                  )}
-                </p>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Attached Sale Photos</h4>
+                {attachments.length ? (
+                  <div className="space-y-2">
+                    {attachments.map((attachment, index) => (
+                      <div key={attachment.id} className="flex items-center justify-between gap-3">
+                        <span className="text-xs text-[#95EA00] font-medium truncate">
+                          Photo {index + 1}: {attachment.originalFilename}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onViewPhoto(submission, attachment)}
+                          className="inline-flex flex-shrink-0 items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-purple-200 bg-[#A559BD]/20 hover:bg-[#A559BD]/30 border border-[#A559BD]/50 rounded transition-colors"
+                        >
+                          <ImageIcon className="w-3.5 h-3.5" />
+                          <span>View Photo</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400">No photo</p>
+                )}
               </div>
-
-              {submission.attachment && (
-                <button
-                  type="button"
-                  onClick={() => onViewPhoto(submission)}
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 text-xs font-semibold text-purple-200 bg-[#A559BD]/20 hover:bg-[#A559BD]/30 border border-[#A559BD]/50 rounded transition-colors"
-                >
-                  <ImageIcon className="w-3.5 h-3.5" />
-                  <span>View Photo</span>
-                </button>
-              )}
             </div>
           </div>
 

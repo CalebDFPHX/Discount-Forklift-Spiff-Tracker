@@ -274,10 +274,7 @@ export const submissionsRelations = relations(spiffSubmissions, ({ one, many }) 
     fields: [spiffSubmissions.spiffId],
     references: [spiffs.id],
   }),
-  attachment: one(attachments, {
-    fields: [spiffSubmissions.id],
-    references: [attachments.submissionId],
-  }),
+  attachments: many(attachments),
   auditEvents: many(auditEvents),
   emailJobs: many(emailNotificationJobs),
 }));

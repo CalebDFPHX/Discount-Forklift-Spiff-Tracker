@@ -12,6 +12,7 @@ import { formatDollars, validateSerialSuffix } from './formatters.js';
 import { formatPhoenixDate, formatPhoenixDateTime, getPhoenixDateRangeUtcBounds } from './timezone.js';
 import { hashPassword, verifyPassword, validatePasswordStrength } from './auth.js';
 import { deleteBlobPhoto } from './blob.js';
+import { getPhotoCountError } from './photoAttachments.js';
 import {
   BLOCKED_NOTIFICATION_RECIPIENT_EMAILS,
   isBlockedNotificationRecipient,
@@ -212,6 +213,7 @@ export interface SpiffSubmission {
   rejectionReason?: string | null;
   paidAt?: string | null;
   paidBy?: string | null;
+  attachments?: Attachment[];
   attachment?: Attachment | null;
   auditEvents?: AuditEvent[];
 }
@@ -1263,6 +1265,7 @@ export const Repository = {
     serialSuffix: string;
     saleDate: string;
     notes?: string;
+    attachmentIds?: string[];
     attachmentId?: string;
     idempotencyKey?: string;
     appUrl?: string;
@@ -1357,20 +1360,27 @@ export const Repository = {
     const submissionId = generateId('SPF');
     const now = new Date().toISOString();
 
-    // 3. Server-side mandatory sale photo enforcement
-    if (!input.attachmentId) {
+    const attachmentIds = input.attachmentIds ?? (input.attachmentId ? [input.attachmentId] : []);
+    if (!Array.isArray(attachmentIds)) {
       throw new Error('Please attach a sale photo before submitting your spiff request.');
     }
-
-    const attachedObj = await this.getAttachment(input.attachmentId);
-    if (!attachedObj) {
-      throw new Error('Please attach a sale photo before submitting your spiff request.');
+    const photoCountError = getPhotoCountError(attachmentIds.length);
+    if (photoCountError) {
+      throw new Error(photoCountError);
     }
-    if (attachedObj.submissionId || attachedObj.uploadStatus === 'linked') {
-      throw new Error('This sale photo has already been linked to another spiff request.');
+    if (attachmentIds.some((id) => typeof id !== 'string' || !id.trim()) || new Set(attachmentIds).size !== attachmentIds.length) {
+      throw new Error('Sale photo attachments are invalid or duplicated.');
     }
-    attachedObj.submissionId = submissionId;
-    attachedObj.uploadStatus = 'linked';
+    const attachedObjects = await Promise.all(attachmentIds.map((id) => this.getAttachment(id)));
+    const validAttachments = attachedObjects.filter(
+      (attachment): attachment is Attachment => attachment !== null
+    );
+    if (validAttachments.length !== attachmentIds.length) {
+      throw new Error('One or more sale photos could not be found.');
+    }
+    if (validAttachments.some((attachment) => attachment.submissionId || attachment.uploadStatus === 'linked')) {
+      throw new Error('One or more sale photos have already been linked to another spiff request.');
+    }
 
     const newSubmission: SpiffSubmission = {
       id: submissionId,
@@ -1390,7 +1400,8 @@ export const Repository = {
       isPotentialDuplicate,
       duplicateReason,
       submittedAt: now,
-      attachment: attachedObj,
+      attachments: validAttachments,
+      attachment: validAttachments[0],
       auditEvents: [],
     };
 
@@ -1493,8 +1504,8 @@ export const Repository = {
           duplicateReason: newSubmission.duplicateReason,
         });
 
-        // Link photo attachment atomically and verify single claim
-        const [linkedAtt] = await tx
+        // Link all photos atomically and verify each is still available.
+        const linkedAttachments = await tx
           .update(schema.attachments)
           .set({
             submissionId: newSubmission.id,
@@ -1502,14 +1513,15 @@ export const Repository = {
           })
           .where(
             and(
-              eq(schema.attachments.id, attachedObj.id),
-              eq(schema.attachments.uploadStatus, 'pending')
+              inArray(schema.attachments.id, attachmentIds),
+              eq(schema.attachments.uploadStatus, 'pending'),
+              isNull(schema.attachments.submissionId)
             )
           )
           .returning();
 
-        if (!linkedAtt) {
-          throw new Error('Please attach an authentic, unlinked sale photo before submitting your spiff request.');
+        if (linkedAttachments.length !== attachmentIds.length) {
+          throw new Error('One or more sale photos are no longer available. Please select the photos again.');
         }
 
         // Insert notification job in the same transaction
@@ -1530,6 +1542,11 @@ export const Repository = {
           eventPayload: emailJob.eventPayload,
         });
       });
+    }
+
+    for (const attachment of validAttachments) {
+      attachment.submissionId = submissionId;
+      attachment.uploadStatus = 'linked';
     }
 
     memoryStore.submissions.unshift(newSubmission);
@@ -1627,7 +1644,7 @@ export const Repository = {
       }
 
       const subIds = rows.map((r) => r.id);
-      const attMap = new Map<string, Attachment>();
+      const attMap = new Map<string, Attachment[]>();
       if (subIds.length > 0) {
         const attRows = await db
           .select()
@@ -1635,11 +1652,13 @@ export const Repository = {
           .where(sql`${schema.attachments.submissionId} IN ${subIds}`);
         for (const att of attRows) {
           if (att.submissionId) {
-            attMap.set(att.submissionId, {
+            const attachments = attMap.get(att.submissionId) || [];
+            attachments.push({
               ...att,
               uploadStatus: att.uploadStatus as any,
               uploadedAt: att.uploadedAt.toISOString(),
             });
+            attMap.set(att.submissionId, attachments);
           }
         }
       }
@@ -1651,7 +1670,8 @@ export const Repository = {
         approvedAt: r.approvedAt ? r.approvedAt.toISOString() : null,
         rejectedAt: r.rejectedAt ? r.rejectedAt.toISOString() : null,
         paidAt: r.paidAt ? r.paidAt.toISOString() : null,
-        attachment: attMap.get(r.id) || null,
+        attachments: attMap.get(r.id) || [],
+        attachment: attMap.get(r.id)?.[0] || null,
         auditEvents: [],
       }));
 
@@ -1765,14 +1785,13 @@ export const Repository = {
       const attRows = await db
         .select()
         .from(schema.attachments)
-        .where(eq(schema.attachments.submissionId, id))
-        .limit(1);
+        .where(eq(schema.attachments.submissionId, id));
 
-      const att: Attachment | null = attRows.length > 0 ? {
-        ...attRows[0],
-        uploadStatus: attRows[0].uploadStatus as any,
-        uploadedAt: attRows[0].uploadedAt.toISOString(),
-      } : null;
+      const attachments: Attachment[] = attRows.map((att) => ({
+        ...att,
+        uploadStatus: att.uploadStatus as any,
+        uploadedAt: att.uploadedAt.toISOString(),
+      }));
 
       const audits = await db
         .select()
@@ -1787,7 +1806,8 @@ export const Repository = {
         approvedAt: r.approvedAt ? r.approvedAt.toISOString() : null,
         rejectedAt: r.rejectedAt ? r.rejectedAt.toISOString() : null,
         paidAt: r.paidAt ? r.paidAt.toISOString() : null,
-        attachment: att,
+        attachments,
+        attachment: attachments[0] || null,
         auditEvents: audits.map((a) => ({
           ...a,
           timestamp: a.timestamp.toISOString(),
