@@ -23,6 +23,7 @@ import { SpiffSubmission, SalesRep } from '../lib/repository';
 import { formatDollars } from '../lib/formatters';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone';
 import { adminFetch } from '../lib/api';
+import { getSubmissionPhotos } from '../lib/photoAttachments';
 
 interface AdminLedgerProps {
   adminUser: string;
@@ -537,13 +538,14 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
 
                     {/* Photo column */}
                     <td className="py-3 px-3 text-center whitespace-nowrap">
-                      {sub.attachment ? (
+                      {getSubmissionPhotos(sub).length > 0 ? (
                         <button
                           onClick={() => onViewPhoto(sub)}
                           className="inline-flex items-center space-x-1 text-[#95EA00] hover:text-[#83cc00] font-semibold text-[11px] hover:underline"
+                          aria-label={`View photos (${getSubmissionPhotos(sub).length}) for ${sub.id}`}
                         >
                           <ImageIcon className="w-3.5 h-3.5" />
-                          <span>View Photo</span>
+                          <span>View photos ({getSubmissionPhotos(sub).length})</span>
                         </button>
                       ) : (
                         <span className="text-gray-400 text-[11px]">No photo</span>

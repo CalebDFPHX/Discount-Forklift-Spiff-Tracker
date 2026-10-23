@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
+import type { Attachment } from '../src/lib/repository.js';
 
 process.env.NODE_ENV = 'test';
 process.env.AUTH_SECRET = 'unit-test-only-photo-secret';
@@ -9,6 +10,9 @@ delete process.env.BLOB_READ_WRITE_TOKEN;
 const { Repository, memoryStore } = await import('../src/lib/repository.js');
 const { createSessionToken } = await import('../src/lib/sessionAuth.js');
 const { deleteBlobPhoto } = await import('../src/lib/blob.js');
+const { createElement } = await import('react');
+const { renderToStaticMarkup } = await import('react-dom/server');
+const { PhotoPreviewModal } = await import('../src/components/PhotoPreviewModal.js');
 const {
   addPhoto,
   canAddPhoto,
@@ -169,12 +173,29 @@ describe('photo attachment limits and form state', () => {
   });
 
   it('uses the legacy single attachment when a submission has no attachment list', () => {
-    const legacyAttachment = {
+    const legacyAttachment: Attachment = {
       id: 'legacy-photo-id',
+      submissionId: 'SPF-LEGACY',
+      storageKey: 'legacy-photo-storage',
       originalFilename: 'legacy-sale.jpg',
+      contentType: 'image/jpeg',
+      fileSizeBytes: jpegBytes.length,
+      uploadStatus: 'linked',
+      uploadedAt: new Date().toISOString(),
     };
     assert.deepEqual(getSubmissionPhotos({ attachment: legacyAttachment }), [legacyAttachment]);
     assert.deepEqual(getSubmissionPhotos({ attachments: [legacyAttachment], attachment: null }), [legacyAttachment]);
+
+    const markup = renderToStaticMarkup(createElement(PhotoPreviewModal, {
+      isOpen: true,
+      onClose: () => {},
+      attachment: legacyAttachment,
+      requestId: 'SPF-LEGACY',
+      adminUser: 'admin@example.test',
+    }));
+    assert.match(markup, /Sale Photos \(1\)/);
+    assert.match(markup, /\/api\/admin\/attachments\/legacy-photo-id\/view/);
+    assert.match(markup, /legacy-sale\.jpg/);
   });
 });
 
@@ -246,6 +267,31 @@ describe('photo submission and reviewer access', () => {
       assert.equal(detailsResponse.status, 200);
       const detailsBody = await detailsResponse.json();
       assert.deepEqual(detailsBody.submission.attachments.map((attachment: { id: string }) => attachment.id), sixAttachmentIds.slice(0, 5));
+
+      const ledgerResponse = await fetch(`${baseUrl}/api/admin/submissions`, {
+        headers: authHeaders,
+      });
+      assert.equal(ledgerResponse.status, 200);
+      const ledgerBody = await ledgerResponse.json();
+      const ledgerSubmission = ledgerBody.submissions.find(
+        (submission: { id: string }) => submission.id === submissionId
+      );
+      assert.deepEqual(
+        ledgerSubmission.attachments.map((attachment: { id: string }) => attachment.id),
+        sixAttachmentIds.slice(0, 5)
+      );
+
+      const gallery = renderToStaticMarkup(createElement(PhotoPreviewModal, {
+        isOpen: true,
+        onClose: () => {},
+        attachments: ledgerSubmission.attachments,
+        requestId: submissionId,
+        adminUser: 'caleb@discountforkliftphoenix.com',
+      }));
+      for (const attachmentId of sixAttachmentIds.slice(0, 5)) {
+        assert.ok(gallery.includes(`/api/admin/attachments/${attachmentId}/view`));
+      }
+      assert.equal((gallery.match(/<img /g) || []).length, 5);
 
       for (const attachmentId of sixAttachmentIds.slice(0, 5)) {
         const unauthorized = await fetch(`${baseUrl}/api/admin/attachments/${attachmentId}/view`);

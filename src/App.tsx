@@ -23,6 +23,7 @@ import {
   PaidReceiptNotificationResult,
 } from './lib/repository.js'
 import { adminFetch, setAdminSession, clearAdminSession, getAdminSession } from './lib/api.js';
+import { getSubmissionPhotos } from './lib/photoAttachments.js';
 import { FileText, Award, Users, Settings as SettingsIcon, Contact, Sparkles, Building2 } from 'lucide-react';
 
 export default function App() {
@@ -37,7 +38,7 @@ export default function App() {
 
   // Admin Ledger modal states
   const [activeDetailSubmission, setActiveDetailSubmission] = useState<SpiffSubmission | null>(null);
-  const [activePhotoAttachment, setActivePhotoAttachment] = useState<Attachment | null>(null);
+  const [activePhotoAttachments, setActivePhotoAttachments] = useState<Attachment[]>([]);
   const [activePhotoRequestId, setActivePhotoRequestId] = useState<string>('');
 
   // Decision Confirm Modal state
@@ -288,9 +289,10 @@ export default function App() {
     refreshConfig();
   };
 
-  const handleOpenPhoto = (submission: SpiffSubmission, attachment = submission.attachments?.[0] || submission.attachment) => {
-    if (attachment) {
-      setActivePhotoAttachment(attachment);
+  const handleOpenPhoto = (submission: SpiffSubmission, attachment?: Attachment) => {
+    const attachments = attachment ? [attachment] : getSubmissionPhotos(submission);
+    if (attachments.length > 0) {
+      setActivePhotoAttachments(attachments);
       setActivePhotoRequestId(submission.id);
     }
   };
@@ -558,11 +560,11 @@ export default function App() {
       )}
 
       {/* Photo Preview Modal */}
-      {activePhotoAttachment && (
+      {activePhotoAttachments.length > 0 && (
         <PhotoPreviewModal
-          isOpen={Boolean(activePhotoAttachment)}
-          onClose={() => setActivePhotoAttachment(null)}
-          attachment={activePhotoAttachment}
+          isOpen={activePhotoAttachments.length > 0}
+          onClose={() => setActivePhotoAttachments([])}
+          attachments={activePhotoAttachments}
           requestId={activePhotoRequestId}
           adminUser={adminUser || 'caleb@discountforkliftphoenix.com'}
         />
