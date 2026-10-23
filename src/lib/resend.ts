@@ -114,7 +114,7 @@ async function deliverEmail(params: {
         },
       });
       const result = await transport.sendMail({
-        from: gmailUser,
+        from: `"Discount Forklift Spiff Tracker" <${gmailUser}>`,
         to: params.to,
         subject: params.subject,
         html: params.html,
