@@ -15,6 +15,8 @@ import {
   ChevronsUpDown,
   ExternalLink,
   ChevronRight,
+  Eye,
+  Send,
 } from 'lucide-react';
 import { EmailJob } from '../lib/repository';
 import { getEmailTemplateDisplayName } from '../lib/emailTemplates';
@@ -25,9 +27,20 @@ import { adminFetch } from '../lib/api';
 
 interface AdminSettingsProps {
   adminUser: string;
+  adminRole: string;
 }
 
-export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
+interface WeeklyReportPreview {
+  weekStart: string;
+  weekEnd: string;
+  subject: string;
+  html: string;
+  csv: string;
+  filename: string;
+  submissionCount: number;
+}
+
+export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser, adminRole }) => {
   const [recipientEmail, setRecipientEmail] = useState('');
   const [contacts, setContacts] = useState<
     Array<{ id: string; name: string; email: string; role: string; branch?: string | null }>
@@ -39,6 +52,12 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
   const [templateFilter, setTemplateFilter] = useState('all');
   const [expandedJobIds, setExpandedJobIds] = useState<Record<string, boolean>>({});
+  const [weeklyReportPreview, setWeeklyReportPreview] = useState<WeeklyReportPreview | null>(null);
+  const [weeklyReportTestEmail, setWeeklyReportTestEmail] = useState('');
+  const [weeklyReportMessage, setWeeklyReportMessage] = useState<string | null>(null);
+  const [weeklyReportMessageIsError, setWeeklyReportMessageIsError] = useState(false);
+  const [isPreviewingWeeklyReport, setIsPreviewingWeeklyReport] = useState(false);
+  const [isSendingWeeklyReportTest, setIsSendingWeeklyReportTest] = useState(false);
 
   const getSavedTemplateLabel = (job: EmailJob) => {
     if (!job.templateId || typeof job.templateVersion !== 'number') {
@@ -62,6 +81,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
     infrastructure: true,
     userLogins: true,
     recipientEmail: true,
+    weeklyReport: true,
     templates: true,
     dispatchLog: true,
     cronEndpoints: true,
@@ -79,6 +99,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
       infrastructure: true,
       userLogins: true,
       recipientEmail: true,
+      weeklyReport: true,
       templates: true,
       dispatchLog: true,
       cronEndpoints: true,
@@ -90,6 +111,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
       infrastructure: false,
       userLogins: false,
       recipientEmail: false,
+      weeklyReport: false,
       templates: false,
       dispatchLog: false,
       cronEndpoints: false,
@@ -156,6 +178,48 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
       console.error('Failed to update recipient email:', err);
     } finally {
       setIsSavingSettings(false);
+    }
+  };
+
+  const handlePreviewWeeklyReport = async () => {
+    setIsPreviewingWeeklyReport(true);
+    setWeeklyReportMessage(null);
+    try {
+      const res = await adminFetch('/api/admin/weekly-spiff-report/preview');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to preview the weekly report.');
+      setWeeklyReportPreview(data);
+    } catch (err) {
+      setWeeklyReportMessage(err instanceof Error ? err.message : 'Failed to preview the weekly report.');
+      setWeeklyReportMessageIsError(true);
+    } finally {
+      setIsPreviewingWeeklyReport(false);
+    }
+  };
+
+  const handleSendWeeklyReportTest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSendingWeeklyReportTest(true);
+    setWeeklyReportMessage(null);
+    try {
+      const res = await adminFetch('/api/admin/weekly-spiff-report/test-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ testEmail: weeklyReportTestEmail.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to send the test report.');
+      }
+      setWeeklyReportMessage(
+        `TEST email accepted by the configured provider and recorded for ${weeklyReportTestEmail.trim()}.`
+      );
+      setWeeklyReportMessageIsError(false);
+    } catch (err) {
+      setWeeklyReportMessage(err instanceof Error ? err.message : 'Failed to send the test report.');
+      setWeeklyReportMessageIsError(true);
+    } finally {
+      setIsSendingWeeklyReportTest(false);
     }
   };
 
@@ -516,6 +580,113 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser }) => {
           </div>
         )}
       </div>
+
+      {adminRole === 'Administrator' && (
+        <div className="bg-[#2d2d2d] border border-[#444444] rounded-xl shadow-sm overflow-hidden transition-all">
+          <button
+            type="button"
+            onClick={() => toggleSection('weeklyReport')}
+            className="w-full flex items-center justify-between p-4 sm:p-5 text-left hover:bg-[#343434] transition-colors focus:outline-none"
+            aria-expanded={openSections.weeklyReport}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="w-8 h-8 rounded-lg bg-[#95EA00]/15 border border-[#95EA00]/30 flex items-center justify-center text-[#95EA00] flex-shrink-0">
+                <Mail className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-white">Weekly Spiff Report</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Preview the previous Phoenix week or send a clearly labeled test report to a chosen address.
+                </p>
+              </div>
+            </div>
+            <ChevronDown
+              className={`w-4 h-4 text-gray-400 transition-transform ${
+                openSections.weeklyReport ? 'rotate-180 text-white' : ''
+              }`}
+            />
+          </button>
+
+          {openSections.weeklyReport && (
+            <div className="p-5 sm:p-6 border-t border-[#383838] space-y-5">
+              <p className="text-xs text-gray-300">
+                Preview does not send email. Test delivery goes only to the address entered below, is prefixed with TEST, and does not mark the scheduled report as sent.
+              </p>
+              <button
+                type="button"
+                onClick={handlePreviewWeeklyReport}
+                disabled={isPreviewingWeeklyReport}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-[#1e1e1e] hover:bg-[#383838] border border-[#555555] text-white text-xs font-bold rounded-lg disabled:opacity-50"
+              >
+                <Eye className="w-4 h-4" />
+                {isPreviewingWeeklyReport ? 'Loading Preview...' : 'Preview Report'}
+              </button>
+
+              {weeklyReportPreview && (
+                <div className="space-y-3 rounded-lg border border-[#444444] bg-[#242424] p-4">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-300">
+                      Reporting period: {weeklyReportPreview.weekStart} through {weeklyReportPreview.weekEnd} (America/Phoenix)
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-white">{weeklyReportPreview.subject}</p>
+                    <p className="text-xs text-gray-400">
+                      {weeklyReportPreview.submissionCount} submissions · Attachment: {weeklyReportPreview.filename}
+                    </p>
+                  </div>
+                  <iframe
+                    title="Weekly Spiff report email preview"
+                    sandbox=""
+                    srcDoc={weeklyReportPreview.html}
+                    className="w-full min-h-36 rounded border border-[#444444] bg-white"
+                  />
+                  <label className="block text-xs font-semibold text-gray-300">
+                    CSV attachment preview
+                    <textarea
+                      readOnly
+                      value={weeklyReportPreview.csv}
+                      rows={10}
+                      className="mt-1.5 w-full resize-y rounded border border-[#444444] bg-[#1e1e1e] p-3 font-mono text-[11px] text-gray-200"
+                    />
+                  </label>
+                </div>
+              )}
+
+              <form onSubmit={handleSendWeeklyReportTest} className="max-w-xl space-y-3">
+                <label className="block text-xs font-semibold text-gray-200">
+                  Test recipient email
+                  <input
+                    type="email"
+                    required
+                    maxLength={254}
+                    autoComplete="email"
+                    value={weeklyReportTestEmail}
+                    onChange={(event) => setWeeklyReportTestEmail(event.target.value)}
+                    placeholder="you@example.com"
+                    className="mt-1.5 w-full rounded-lg border border-[#555555] bg-[#1e1e1e] px-3 py-2 text-sm text-white"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={isSendingWeeklyReportTest || !weeklyReportTestEmail.trim()}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#A559BD] hover:bg-[#934da9] text-white text-xs font-bold rounded-lg disabled:opacity-50"
+                >
+                  <Send className="w-4 h-4" />
+                  {isSendingWeeklyReportTest ? 'Sending TEST Email...' : 'Send TEST Email'}
+                </button>
+              </form>
+
+              {weeklyReportMessage && (
+                <p
+                  role="status"
+                  className={`text-xs ${weeklyReportMessageIsError ? 'text-rose-300' : 'text-[#95EA00]'}`}
+                >
+                  {weeklyReportMessage}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ==================================================== */}
       {/* SECTION 4: Editable Email Templates                 */}

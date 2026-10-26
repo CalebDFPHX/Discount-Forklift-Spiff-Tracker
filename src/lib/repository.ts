@@ -220,6 +220,46 @@ export interface SpiffSubmission {
   auditEvents?: AuditEvent[];
 }
 
+export interface WeeklySpiffReportSubmission {
+  id: string;
+  submittedAt: string;
+  branchName: string | null;
+  repName: string;
+  liftName: string;
+  serialSuffix: string;
+  spiffName: string;
+  notes: string | null;
+  status: string;
+  approvedAt: string | null;
+  approvedBy: string | null;
+  approvalDetails: string | null;
+  rejectedAt: string | null;
+  rejectedBy: string | null;
+  rejectionReason: string | null;
+  paidAt: string | null;
+  photoCount: number;
+}
+
+interface WeeklySpiffReportRecord {
+  weekStart: string;
+  status: 'processing' | 'sent' | 'failed';
+  attemptCount: number;
+  providerMessageId: string | null;
+  errorMessage: string | null;
+  sentAt: string | null;
+}
+
+interface WeeklySpiffReportTestRecord {
+  id: string;
+  weekStart: string;
+  adminEmail: string;
+  recipientEmail: string;
+  status: 'processing' | 'sent' | 'failed';
+  providerMessageId: string | null;
+  errorMessage: string | null;
+  sentAt: string | null;
+}
+
 export interface EmailJob {
   id: string;
   submissionId: string;
@@ -376,6 +416,8 @@ class InMemoryStore {
   ];
 
   submissions: SpiffSubmission[] = [];
+  weeklySpiffReports: WeeklySpiffReportRecord[] = [];
+  weeklySpiffReportTestSends: WeeklySpiffReportTestRecord[] = [];
   attachments: Attachment[] = [];
   auditEvents: AuditEvent[] = [];
   settings: Record<string, string> = {
@@ -788,6 +830,259 @@ export const Repository = {
         createdAt: contact.createdAt.toISOString(),
         updatedAt: contact.updatedAt.toISOString(),
       }));
+  },
+
+  async getWeeklySpiffReportSubmissions(
+    startUtc: Date,
+    endExclusiveUtc: Date
+  ): Promise<WeeklySpiffReportSubmission[]> {
+    this.assertDatabaseOrMemoryAllowed();
+
+    if (this.isLiveDatabaseConnected() && db) {
+      const rows = await db
+        .select({
+          id: schema.spiffSubmissions.id,
+          submittedAt: schema.spiffSubmissions.submittedAt,
+          branchName: sql<string | null>`coalesce(${schema.spiffSubmissions.snapshotBranchName}, ${schema.branches.name})`,
+          repName: schema.spiffSubmissions.snapshotRepName,
+          liftName: schema.spiffSubmissions.liftName,
+          serialSuffix: schema.spiffSubmissions.serialSuffix,
+          spiffName: schema.spiffSubmissions.snapshotSpiffName,
+          notes: schema.spiffSubmissions.notes,
+          status: schema.spiffSubmissions.status,
+          approvedAt: schema.spiffSubmissions.approvedAt,
+          approvedBy: schema.spiffSubmissions.approvedBy,
+          approvalDetails: schema.spiffSubmissions.decisionMessage,
+          rejectedAt: schema.spiffSubmissions.rejectedAt,
+          rejectedBy: schema.spiffSubmissions.rejectedBy,
+          rejectionReason: schema.spiffSubmissions.rejectionReason,
+          paidAt: schema.spiffSubmissions.paidAt,
+        })
+        .from(schema.spiffSubmissions)
+        .leftJoin(schema.branches, eq(schema.spiffSubmissions.branchId, schema.branches.id))
+        .where(
+          and(
+            gte(schema.spiffSubmissions.submittedAt, startUtc),
+            lt(schema.spiffSubmissions.submittedAt, endExclusiveUtc)
+          )
+        )
+        .orderBy(asc(schema.spiffSubmissions.submittedAt));
+
+      const photoCounts = new Map<string, number>();
+      if (rows.length > 0) {
+        const attachmentRows = await db
+          .select({ submissionId: schema.attachments.submissionId })
+          .from(schema.attachments)
+          .where(inArray(schema.attachments.submissionId, rows.map((row) => row.id)));
+        for (const attachment of attachmentRows) {
+          if (attachment.submissionId) {
+            photoCounts.set(
+              attachment.submissionId,
+              (photoCounts.get(attachment.submissionId) || 0) + 1
+            );
+          }
+        }
+      }
+
+      return rows.map((row) => ({
+        ...row,
+        submittedAt: row.submittedAt.toISOString(),
+        approvedAt: row.approvedAt?.toISOString() || null,
+        rejectedAt: row.rejectedAt?.toISOString() || null,
+        paidAt: row.paidAt?.toISOString() || null,
+        photoCount: photoCounts.get(row.id) || 0,
+      }));
+    }
+
+    const branchNames = new Map(memoryStore.branches.map((branch) => [branch.id, branch.name]));
+    return memoryStore.submissions
+      .filter((submission) => {
+        const submittedAt = new Date(submission.submittedAt).getTime();
+        return submittedAt >= startUtc.getTime() && submittedAt < endExclusiveUtc.getTime();
+      })
+      .sort((left, right) => left.submittedAt.localeCompare(right.submittedAt))
+      .map((submission) => ({
+        id: submission.id,
+        submittedAt: submission.submittedAt,
+        branchName:
+          submission.snapshotBranchName ||
+          (submission.branchId ? branchNames.get(submission.branchId) || null : null),
+        repName: submission.snapshotRepName,
+        liftName: submission.liftName,
+        serialSuffix: submission.serialSuffix,
+        spiffName: submission.snapshotSpiffName,
+        notes: submission.notes || null,
+        status: submission.status,
+        approvedAt: submission.approvedAt || null,
+        approvedBy: submission.approvedBy || null,
+        approvalDetails: submission.decisionMessage || null,
+        rejectedAt: submission.rejectedAt || null,
+        rejectedBy: submission.rejectedBy || null,
+        rejectionReason: submission.rejectionReason || null,
+        paidAt: submission.paidAt || null,
+        photoCount: memoryStore.attachments.filter(
+          (attachment) => attachment.submissionId === submission.id
+        ).length,
+      }));
+  },
+
+  async claimWeeklySpiffReport(weekStart: string): Promise<boolean> {
+    this.assertDatabaseOrMemoryAllowed();
+
+    if (this.isLiveDatabaseConnected() && db) {
+      const inserted = await db
+        .insert(schema.weeklySpiffReports)
+        .values({ weekStart, status: 'processing', attemptCount: 1 })
+        .onConflictDoNothing()
+        .returning({ weekStart: schema.weeklySpiffReports.weekStart });
+      if (inserted.length > 0) return true;
+
+      const retried = await db
+        .update(schema.weeklySpiffReports)
+        .set({
+          status: 'processing',
+          attemptCount: sql`${schema.weeklySpiffReports.attemptCount} + 1`,
+          providerMessageId: null,
+          errorMessage: null,
+          sentAt: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.weeklySpiffReports.weekStart, weekStart),
+            eq(schema.weeklySpiffReports.status, 'failed')
+          )
+        )
+        .returning({ weekStart: schema.weeklySpiffReports.weekStart });
+      return retried.length > 0;
+    }
+
+    const existing = memoryStore.weeklySpiffReports.find(
+      (report) => report.weekStart === weekStart
+    );
+    if (!existing) {
+      memoryStore.weeklySpiffReports.push({
+        weekStart,
+        status: 'processing',
+        attemptCount: 1,
+        providerMessageId: null,
+        errorMessage: null,
+        sentAt: null,
+      });
+      return true;
+    }
+    if (existing.status !== 'failed') return false;
+    existing.status = 'processing';
+    existing.attemptCount += 1;
+    existing.providerMessageId = null;
+    existing.errorMessage = null;
+    existing.sentAt = null;
+    return true;
+  },
+
+  async finishWeeklySpiffReport(
+    weekStart: string,
+    result: { status: 'sent' | 'failed'; providerMessageId?: string; errorMessage?: string }
+  ): Promise<void> {
+    this.assertDatabaseOrMemoryAllowed();
+    const sentAt = result.status === 'sent' ? new Date() : null;
+
+    if (this.isLiveDatabaseConnected() && db) {
+      const updated = await db
+        .update(schema.weeklySpiffReports)
+        .set({
+          status: result.status,
+          providerMessageId: result.providerMessageId || null,
+          errorMessage: result.errorMessage || null,
+          sentAt,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.weeklySpiffReports.weekStart, weekStart),
+            eq(schema.weeklySpiffReports.status, 'processing')
+          )
+        )
+        .returning({ weekStart: schema.weeklySpiffReports.weekStart });
+      if (updated.length === 0) {
+        throw new Error(`Weekly Spiff report claim for ${weekStart} is no longer active.`);
+      }
+      return;
+    }
+
+    const report = memoryStore.weeklySpiffReports.find(
+      (entry) => entry.weekStart === weekStart && entry.status === 'processing'
+    );
+    if (!report) {
+      throw new Error(`Weekly Spiff report claim for ${weekStart} is no longer active.`);
+    }
+    report.status = result.status;
+    report.providerMessageId = result.providerMessageId || null;
+    report.errorMessage = result.errorMessage || null;
+    report.sentAt = sentAt?.toISOString() || null;
+  },
+
+  async createWeeklySpiffReportTestSend(input: {
+    id: string;
+    weekStart: string;
+    adminEmail: string;
+    recipientEmail: string;
+  }): Promise<void> {
+    this.assertDatabaseOrMemoryAllowed();
+    if (this.isLiveDatabaseConnected() && db) {
+      await db.insert(schema.weeklySpiffReportTestSends).values({
+        ...input,
+        status: 'processing',
+      });
+      return;
+    }
+
+    memoryStore.weeklySpiffReportTestSends.push({
+      ...input,
+      status: 'processing',
+      providerMessageId: null,
+      errorMessage: null,
+      sentAt: null,
+    });
+  },
+
+  async finishWeeklySpiffReportTestSend(
+    id: string,
+    result: { status: 'sent' | 'failed'; providerMessageId?: string; errorMessage?: string }
+  ): Promise<void> {
+    this.assertDatabaseOrMemoryAllowed();
+    const sentAt = result.status === 'sent' ? new Date() : null;
+    if (this.isLiveDatabaseConnected() && db) {
+      const updated = await db
+        .update(schema.weeklySpiffReportTestSends)
+        .set({
+          status: result.status,
+          providerMessageId: result.providerMessageId || null,
+          errorMessage: result.errorMessage || null,
+          sentAt,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(schema.weeklySpiffReportTestSends.id, id),
+            eq(schema.weeklySpiffReportTestSends.status, 'processing')
+          )
+        )
+        .returning({ id: schema.weeklySpiffReportTestSends.id });
+      if (updated.length === 0) {
+        throw new Error(`Weekly Spiff report test send ${id} is no longer active.`);
+      }
+      return;
+    }
+
+    const record = memoryStore.weeklySpiffReportTestSends.find(
+      (entry) => entry.id === id && entry.status === 'processing'
+    );
+    if (!record) throw new Error(`Weekly Spiff report test send ${id} is no longer active.`);
+    record.status = result.status;
+    record.providerMessageId = result.providerMessageId || null;
+    record.errorMessage = result.errorMessage || null;
+    record.sentAt = sentAt?.toISOString() || null;
   },
 
   async createContact(input: {

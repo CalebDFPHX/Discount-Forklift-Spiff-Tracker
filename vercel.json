@@ -9,6 +9,10 @@
     {
       "path": "/api/cron/cleanup-uploads",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-spiff-report",
+      "schedule": "0 15 * * 1"
     }
   ],
   "rewrites": [

@@ -36,9 +36,10 @@ export function inspectSmtpRecipientAcceptance(
     );
   const acceptedRecipients = normalizeAddresses(accepted);
   const rejectedRecipients = normalizeAddresses(rejected);
-  const target = recipient.trim().toLowerCase();
-  const targetAccepted = acceptedRecipients.includes(target);
-  const targetRejected = rejectedRecipients.includes(target);
+  const targets = recipient.split(',').map((address) => address.trim().toLowerCase()).filter(Boolean);
+  const missingRecipients = targets.filter(
+    (target) => !acceptedRecipients.includes(target) || rejectedRecipients.includes(target)
+  );
 
   return {
     acceptedRecipients,
@@ -48,10 +49,10 @@ export function inspectSmtpRecipientAcceptance(
       accepted: acceptedRecipients,
       rejected: rejectedRecipients,
     }),
-    ...(targetAccepted && !targetRejected
+    ...(missingRecipients.length === 0
       ? {}
       : {
-          error: `Gmail SMTP did not accept ${target}. Accepted recipients: ${
+          error: `Gmail SMTP did not accept ${missingRecipients.join(', ')}. Accepted recipients: ${
             acceptedRecipients.join(', ') || 'none'
           }. Rejected recipients: ${rejectedRecipients.join(', ') || 'none'}.`,
         }),
@@ -91,17 +92,20 @@ export function sanitizeEmailProviderError(error: unknown): string {
 }
 
 async function deliverEmail(params: {
-  to: string;
+  to: string | string[];
   subject: string;
   html: string;
   idempotencyKey?: string;
+  attachments?: Array<{ filename: string; content: string; contentType: string }>;
 }): Promise<{
   success: boolean;
   status: 'delivered' | 'accepted' | 'failed';
+  acceptedByProvider?: boolean;
   providerMessageId?: string;
   providerResponse?: string;
   error?: string;
 }> {
+  const recipients = Array.isArray(params.to) ? params.to : [params.to];
   try {
     if (isGmailConfigured && gmailUser && gmailAppPassword) {
       const transport = nodemailer.createTransport({
@@ -118,9 +122,18 @@ async function deliverEmail(params: {
         to: params.to,
         subject: params.subject,
         html: params.html,
+        ...(params.attachments
+          ? {
+              attachments: params.attachments.map((attachment) => ({
+                filename: attachment.filename,
+                content: attachment.content,
+                contentType: attachment.contentType,
+              })),
+            }
+          : {}),
       });
       const recipientResult = inspectSmtpRecipientAcceptance(
-        params.to,
+        recipients.join(','),
         result.accepted,
         result.rejected
       );
@@ -128,6 +141,9 @@ async function deliverEmail(params: {
       return {
         success: !recipientResult.error,
         status: recipientResult.error ? 'failed' : 'accepted',
+        acceptedByProvider: recipientResult.acceptedRecipients.some((email) =>
+          recipients.some((recipient) => recipient.trim().toLowerCase() === email)
+        ),
         providerMessageId: result.messageId,
         providerResponse: recipientResult.providerResponse,
         error: recipientResult.error,
@@ -152,9 +168,18 @@ async function deliverEmail(params: {
     const response = await resend.emails.send(
       {
         from: fromEmail,
-        to: [params.to],
+        to: recipients,
         subject: params.subject,
         html: params.html,
+        ...(params.attachments
+          ? {
+              attachments: params.attachments.map((attachment) => ({
+                filename: attachment.filename,
+                content: attachment.content,
+                content_type: attachment.contentType,
+              })),
+            }
+          : {}),
       },
       Object.keys(headers).length > 0 ? { headers } : undefined
     );
@@ -174,13 +199,14 @@ async function deliverEmail(params: {
     return {
       success: true,
       status: 'accepted',
+      acceptedByProvider: true,
       providerMessageId: response.data?.id,
     };
   } catch (error: unknown) {
     const smtpRecipients = getSmtpErrorRecipientLists(error);
     if (smtpRecipients) {
       const recipientResult = inspectSmtpRecipientAcceptance(
-        params.to,
+        recipients.join(','),
         smtpRecipients.accepted,
         smtpRecipients.rejected
       );
@@ -190,6 +216,9 @@ async function deliverEmail(params: {
       return {
         success: false,
         status: 'failed',
+        acceptedByProvider: recipientResult.acceptedRecipients.some((email) =>
+          recipients.some((recipient) => recipient.trim().toLowerCase() === email)
+        ),
         providerResponse: recipientResult.providerResponse,
         error: message,
       };
@@ -528,4 +557,55 @@ export async function sendRenderedEmail(params: {
   }
 
   return deliverEmail(params);
+}
+
+export async function sendWeeklySpiffReportEmail(params: {
+  to: string[];
+  subject: string;
+  html: string;
+  csv: string;
+  filename: string;
+  idempotencyKey: string;
+}): Promise<{
+  success: boolean;
+  status: 'delivered' | 'accepted' | 'failed';
+  acceptedByProvider?: boolean;
+  providerMessageId?: string;
+  providerResponse?: string;
+  error?: string;
+}> {
+  const blockedRecipient = params.to.find(isBlockedNotificationRecipient);
+  if (blockedRecipient) {
+    return {
+      success: false,
+      status: 'failed',
+      error: 'This recipient address is not eligible for notifications.',
+    };
+  }
+
+  if (!isEmailConfigured) {
+    const errorMsg = hasGmailConfiguration
+      ? 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.'
+      : 'Email delivery unavailable: configure Gmail SMTP or Resend environment variables.';
+    console.warn(`[Email] ${errorMsg}`);
+    return {
+      success: false,
+      status: 'failed',
+      error: errorMsg,
+    };
+  }
+
+  return deliverEmail({
+    to: params.to,
+    subject: params.subject,
+    html: params.html,
+    idempotencyKey: params.idempotencyKey,
+    attachments: [
+      {
+        filename: params.filename,
+        content: params.csv,
+        contentType: 'text/csv; charset=utf-8',
+      },
+    ],
+  });
 }

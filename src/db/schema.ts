@@ -316,3 +316,27 @@ export const rateLimits = pgTable(
     index('idx_rate_limits_reset_at').on(table.resetAt),
   ]
 );
+
+export const weeklySpiffReports = pgTable('weekly_spiff_reports', {
+  weekStart: date('week_start').primaryKey(),
+  status: varchar('status', { length: 32 }).default('processing').notNull(),
+  attemptCount: integer('attempt_count').default(1).notNull(),
+  providerMessageId: varchar('provider_message_id', { length: 255 }),
+  errorMessage: text('error_message'),
+  sentAt: timestamp('sent_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const weeklySpiffReportTestSends = pgTable('weekly_spiff_report_test_sends', {
+  id: varchar('id', { length: 64 }).primaryKey(),
+  weekStart: date('week_start').notNull(),
+  adminEmail: varchar('admin_email', { length: 255 }).notNull(),
+  recipientEmail: varchar('recipient_email', { length: 255 }).notNull(),
+  status: varchar('status', { length: 32 }).default('processing').notNull(),
+  providerMessageId: varchar('provider_message_id', { length: 255 }),
+  errorMessage: text('error_message'),
+  sentAt: timestamp('sent_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+});

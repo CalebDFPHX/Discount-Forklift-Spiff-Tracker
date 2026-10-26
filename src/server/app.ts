@@ -35,11 +35,19 @@ import {
   isGmailConfigured,
   isResendConfigured,
   sendRenderedEmail,
+  sendWeeklySpiffReportEmail,
 } from '../lib/resend.js';
 import { formatDollars } from '../lib/formatters.js';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone.js';
 import { verifyEmailDecisionToken } from '../lib/emailDecisionTokens.js';
 import { getEmailTemplateDisplayName } from '../lib/emailTemplates.js';
+import {
+  buildWeeklySpiffReportContent,
+  getPreviousPhoenixWeek,
+  runWeeklySpiffReport,
+  runWeeklySpiffReportTest,
+  WeeklySpiffReportTestInputError,
+} from '../lib/weeklySpiffReport.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1471,6 +1479,74 @@ app.post(
   }
 );
 
+app.get(
+  '/api/admin/weekly-spiff-report/preview',
+  requireAdmin,
+  requireAdministrator,
+  async (_req, res) => {
+    try {
+      const now = new Date();
+      const week = getPreviousPhoenixWeek(now);
+      const submissions = await Repository.getWeeklySpiffReportSubmissions(
+        week.startUtc,
+        week.endExclusiveUtc
+      );
+      const content = buildWeeklySpiffReportContent(now, submissions);
+      res.json({
+        weekStart: content.week.weekStart,
+        weekEnd: content.week.weekEnd,
+        subject: content.subject,
+        html: content.html,
+        csv: content.csv,
+        filename: content.filename,
+        submissionCount: content.submissionCount,
+      });
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error });
+    }
+  }
+);
+
+app.post(
+  '/api/admin/weekly-spiff-report/test-send',
+  requireAdmin,
+  requireAdministrator,
+  createPersistentRateLimiter({ limit: 5, windowMs: 60 * 60 * 1000, prefix: 'weekly_report_test' }),
+  async (req, res) => {
+    try {
+      const testEmail =
+        typeof req.body?.testEmail === 'string' ? req.body.testEmail : '';
+      const accountingContacts = (await Repository.getAllContacts())
+        .filter((contact) => contact.role === 'Accounting')
+        .map((contact) => contact.email);
+      const result = await runWeeklySpiffReportTest(
+        new Date(),
+        (req as any).adminUser,
+        testEmail,
+        {
+          getAccountingAddresses: async () => accountingContacts,
+          getSubmissions: (startUtc, endExclusiveUtc) =>
+            Repository.getWeeklySpiffReportSubmissions(startUtc, endExclusiveUtc),
+          createTestSend: (input) => Repository.createWeeklySpiffReportTestSend(input),
+          finishTestSend: (id, sendResult) =>
+            Repository.finishWeeklySpiffReportTestSend(id, sendResult),
+          sendEmail: (email) => sendWeeklySpiffReportEmail(email),
+        }
+      );
+      if (result.status === 'failed') {
+        return res.status(502).json({ success: false, ...result });
+      }
+      res.json({ success: true, ...result });
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err.message : String(err);
+      res
+        .status(err instanceof WeeklySpiffReportTestInputError ? 400 : 500)
+        .json({ error });
+    }
+  }
+);
+
 // Quick-start loader for initial setup
 app.post('/api/admin/presets', requireAdmin, async (req, res) => {
   try {
@@ -1626,6 +1702,45 @@ app.all('/api/cron/retry-notifications', async (req, res) => {
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.all('/api/cron/weekly-spiff-report', async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const expectedSecret = process.env.CRON_SECRET;
+  if (!expectedSecret || !authHeader || authHeader !== `Bearer ${expectedSecret}`) {
+    return res.status(401).json({
+      error: 'Unauthorized cron request: Authorization header with Bearer token is required.',
+    });
+  }
+
+  try {
+    const result = await runWeeklySpiffReport(new Date(), {
+      getAccountingRecipients: async () =>
+        (await Repository.getActiveContacts())
+          .filter((contact) => contact.role === 'Accounting')
+          .map((contact) => contact.email),
+      getSubmissions: (startUtc, endExclusiveUtc) =>
+        Repository.getWeeklySpiffReportSubmissions(startUtc, endExclusiveUtc),
+      claimWeek: (weekStart) => Repository.claimWeeklySpiffReport(weekStart),
+      finishWeek: (weekStart, reportResult) =>
+        Repository.finishWeeklySpiffReport(weekStart, reportResult),
+      sendEmail: (email) => sendWeeklySpiffReportEmail(email),
+      logError: (message) => console.error(message),
+      logInfo: (message) => console.info(message),
+    });
+
+    if (result.status === 'failed') {
+      return res.status(502).json({ success: false, ...result });
+    }
+    if (result.status === 'skipped') {
+      return res.status(503).json({ success: false, ...result });
+    }
+    res.json({ success: true, ...result });
+  } catch (err: unknown) {
+    const error = err instanceof Error ? err.message : String(err);
+    console.error('[WeeklySpiffReport] Cron execution failed:', error);
+    res.status(500).json({ error });
   }
 });
 

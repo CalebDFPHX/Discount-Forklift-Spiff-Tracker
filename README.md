@@ -208,6 +208,10 @@ In your Vercel project's **Settings > Environment Variables**, add the following
 | `APP_URL` | In Production, set to the verified stable Production domain from Vercel **Settings > Domains** (not a deployment-specific `*.vercel.app` URL). If unset, the app uses Vercel's `VERCEL_PROJECT_PRODUCTION_URL`. |
 | `CRON_SECRET` | Random hex key for securing scheduled cron endpoints |
 
+The weekly Spiff submission report is sent to active contacts with the `Accounting` role every Monday at 8:00 AM America/Phoenix. Its Vercel Cron schedule is `0 15 * * 1` UTC; the report covers the preceding Monday-to-Monday Phoenix calendar week and includes a CSV attachment. Apply the checked-in database migrations before enabling the job.
+
+Administrators can preview the report in **Settings > Weekly Spiff Report** and send a test copy to a non-Accounting address. Test emails are prefixed with `TEST:` and recorded separately; they do not change the scheduled report’s delivery record.
+
 ---
 
 ### 10. Ledger Date Filters & Timezone Handling

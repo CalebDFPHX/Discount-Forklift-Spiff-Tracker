@@ -478,7 +478,10 @@ export default function App() {
             )}
 
             {adminTab === 'settings' && (
-              <AdminSettings adminUser={adminUser || 'caleb@discountforkliftphoenix.com'} />
+              <AdminSettings
+                adminUser={adminUser || 'caleb@discountforkliftphoenix.com'}
+                adminRole={adminRole}
+              />
             )}
           </div>
         )}
