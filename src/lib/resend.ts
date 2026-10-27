@@ -316,6 +316,7 @@ export interface SpiffNotificationPayload {
   serialSuffix: string;
   spiffName: string;
   amountFormatted: string;
+  isHalfSpiffAmount: boolean;
   saleDate: string;
   submittedAtPhoenix: string;
   hasPhoto: boolean;
@@ -333,6 +334,7 @@ export interface SpiffDecisionEmailPayload {
   serialSuffix: string;
   spiffName: string;
   amountFormatted: string;
+  isHalfSpiffAmount: boolean;
   saleDate: string;
   decision: 'Approved' | 'Denied';
   decisionBy: string;
@@ -422,6 +424,10 @@ export async function sendSpiffSubmissionEmail(payload: SpiffNotificationPayload
       <div class="field-row">
         <span class="field-label">Spiff Cash Amount</span>
         <span class="field-value amount-highlight">${payload.amountFormatted}</span>
+      </div>
+      <div class="field-row">
+        <span class="field-label">Half Spiff Amount</span>
+        <span class="field-value">${payload.isHalfSpiffAmount ? 'Yes' : 'No'}</span>
       </div>
       <div class="field-row">
         <span class="field-label">Sale Date</span>
@@ -555,6 +561,10 @@ export async function sendSpiffDecisionResultEmail(
       <div class="field-row">
         <span class="field-label">Spiff Amount</span>
         <span class="field-value amount-highlight">${payload.amountFormatted}</span>
+      </div>
+      <div class="field-row">
+        <span class="field-label">Half Spiff Amount</span>
+        <span class="field-value">${payload.isHalfSpiffAmount ? 'Yes' : 'No'}</span>
       </div>
       <div class="field-row">
         <span class="field-label">Decision By</span>

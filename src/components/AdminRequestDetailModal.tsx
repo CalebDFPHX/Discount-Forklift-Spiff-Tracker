@@ -458,6 +458,9 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
                     {formatDollars(submission.snapshotAmountCents)}
                   </span>
                 </div>
+                <div className="text-xs text-gray-300">
+                  Half spiff amount: {submission.isHalfSpiffAmount ? 'Yes' : 'No'}
+                </div>
                 <div className="text-xs space-y-1.5">
                   <div className="font-semibold text-white">{submission.snapshotSpiffName}</div>
                   <p className="text-gray-300 text-[11px] leading-relaxed">

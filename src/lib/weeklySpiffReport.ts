@@ -182,8 +182,15 @@ function buildSummaryHtml(week: PhoenixWeek, submissions: WeeklySpiffReportSubmi
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([status, count]) => `${escapeHtml(status)}: ${count}`)
       .join(' &middot; ') || 'No submissions';
+  const payoutRows = submissions
+    .map(
+      (submission) =>
+        `<tr><td style="padding: 6px 12px 6px 0;">${escapeHtml(submission.id)}</td><td style="padding: 6px 12px 6px 0; text-align: right;">${escapeHtml(formatDollars(submission.amountCents))}</td><td style="padding: 6px 0; text-align: center;">${submission.isHalfSpiffAmount ? 'Yes' : 'No'}</td></tr>`
+    )
+    .join('');
+  const payoutTable = `<table style="margin: 16px 0; border-collapse: collapse; font-size: 13px;"><thead><tr><th style="padding: 6px 12px 6px 0; text-align: left;">Request ID</th><th style="padding: 6px 12px 6px 0; text-align: right;">Spiff Amount</th><th style="padding: 6px 0;">Half Spiff Amount</th></tr></thead><tbody>${payoutRows || '<tr><td colspan="3" style="padding: 6px 0;">No submissions</td></tr>'}</tbody></table>`;
 
-  return `<p>Weekly Spiff submission report for ${escapeHtml(week.weekStart)} through ${escapeHtml(week.weekEnd)} (America/Phoenix).</p><p><strong>${submissions.length}</strong> total submission${submissions.length === 1 ? '' : 's'}: ${statusSummary}.</p><p>The attached CSV includes each request’s current status and available approval, denial, payment, and photo details.</p>`;
+  return `<p>Weekly Spiff submission report for ${escapeHtml(week.weekStart)} through ${escapeHtml(week.weekEnd)} (America/Phoenix).</p><p><strong>${submissions.length}</strong> total submission${submissions.length === 1 ? '' : 's'}: ${statusSummary}.</p>${payoutTable}<p>The attached CSV includes each request’s current status and available approval, denial, payment, and photo details.</p>`;
 }
 
 export function buildWeeklySpiffReportContent(

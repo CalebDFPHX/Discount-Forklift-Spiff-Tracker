@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  buildWeeklySpiffReportContent,
   buildWeeklySpiffReportCsv,
   getPreviousPhoenixWeek,
   runWeeklySpiffReport,
@@ -18,7 +19,7 @@ const fixture: WeeklySpiffReportSubmission = {
   liftName: 'Forklift "Model X"',
   serialSuffix: '0042',
   spiffName: 'Quick Sale',
-  amountCents: 5000,
+  amountCents: 5001,
   isHalfSpiffAmount: true,
   notes: 'Paid, after review',
   status: 'Rejected',
@@ -70,13 +71,33 @@ describe('weekly Spiff report', () => {
     assert.match(csv, /"Forklift ""Model X"""/);
     assert.match(csv, /"Denied"/);
     assert.match(csv, /"Spiff Amount"/);
-    assert.match(csv, /"\$50\.00"/);
+    assert.match(csv, /"\$50\.01"/);
     assert.match(csv, /"Half Spiff Amount"/);
     assert.match(csv, /"Yes"/);
     assert.match(csv, /Accounting Manager/);
     assert.match(csv, /Missing documentation/);
     assert.match(csv, /"2"/);
     assert.match(csv, /"Paid, after review"/);
+
+    const fullPayoutFixture = {
+      ...fixture,
+      id: 'SPF-2026-FULL01',
+      amountCents: 10001,
+      isHalfSpiffAmount: false,
+    };
+    const report = buildWeeklySpiffReportContent(
+      new Date('2026-10-26T15:00:00.000Z'),
+      [fixture, fullPayoutFixture]
+    );
+    assert.match(report.html, /SPF-2026-TEST01/);
+    assert.match(report.html, /\$50\.01/);
+    assert.match(report.html, /Half Spiff Amount/);
+    assert.match(report.html, /Yes/);
+    assert.match(report.html, /SPF-2026-FULL01/);
+    assert.match(report.html, /\$100\.01/);
+    assert.match(report.html, /No/);
+    assert.match(report.csv, /"\$100\.01"/);
+    assert.match(report.csv, /"No"/);
   });
 
   it('does not send or claim a report without active non-placeholder Accounting recipients', async () => {
@@ -125,7 +146,13 @@ describe('weekly Spiff report', () => {
   });
 
   it('sends all returned statuses with the report CSV and provider idempotency key', async () => {
-    const pending = { ...fixture, id: 'SPF-2026-TEST02', status: 'Pending' };
+    const pending = {
+      ...fixture,
+      id: 'SPF-2026-TEST02',
+      amountCents: 10001,
+      isHalfSpiffAmount: false,
+      status: 'Pending',
+    };
     let email: Parameters<WeeklySpiffReportDependencies['sendEmail']>[0] | undefined;
     let queryBounds: { start: Date; end: Date } | undefined;
     const result = await runWeeklySpiffReport(
@@ -153,6 +180,8 @@ describe('weekly Spiff report', () => {
     assert.match(email?.csv || '', /SPF-2026-TEST02/);
     assert.match(email?.csv || '', /"Pending"/);
     assert.match(email?.html || '', /<strong>2<\/strong> total submissions/);
+    assert.match(email?.html || '', /\$50\.01[\s\S]*Yes/);
+    assert.match(email?.html || '', /\$100\.01[\s\S]*No/);
   });
 
   it('does not send again when the week is already claimed or sent', async () => {

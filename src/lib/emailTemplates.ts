@@ -93,6 +93,13 @@ export const SUPPORTED_PLACEHOLDERS: PlaceholderDef[] = [
     applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
   },
   {
+    key: 'half_spiff_amount',
+    label: 'Half Spiff Amount',
+    description: 'Whether the saved submission payout is a half spiff amount',
+    sample: 'Yes',
+    applicableTemplates: ['new_submission', 'spiff_approved', 'spiff_approved_paid_receipt', 'spiff_denied'],
+  },
+  {
     key: 'sale_date',
     label: 'Sale Date',
     description: 'Date the sale occurred formatted for Phoenix MST',
@@ -188,6 +195,10 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<string, Omit<EmailTemplate, 'update
           <td style="padding: 10px 0; color: #95EA00; font-size: 18px; font-weight: 700; text-align: right; text-shadow: 0 0 1px #242424;">{{spiff_amount}}</td>
         </tr>
         <tr style="border-bottom: 1px solid #f1f5f9;">
+          <td style="padding: 10px 0; color: #64748b; font-weight: 500;">Half Spiff Amount</td>
+          <td style="padding: 10px 0; color: #0f172a; font-weight: 600; text-align: right;">{{half_spiff_amount}}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #f1f5f9;">
           <td style="padding: 10px 0; color: #64748b; font-weight: 500;">Sale Date</td>
           <td style="padding: 10px 0; color: #0f172a; font-weight: 600; text-align: right;">{{sale_date}}</td>
         </tr>
@@ -249,6 +260,10 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<string, Omit<EmailTemplate, 'update
           <td style="padding: 10px 0; color: #15803d; font-size: 18px; font-weight: 700; text-align: right;">{{spiff_amount}}</td>
         </tr>
         <tr style="border-bottom: 1px solid #f1f5f9;">
+          <td style="padding: 10px 0; color: #64748b; font-weight: 500;">Half Spiff Amount</td>
+          <td style="padding: 10px 0; color: #0f172a; font-weight: 600; text-align: right;">{{half_spiff_amount}}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #f1f5f9;">
           <td style="padding: 10px 0; color: #64748b; font-weight: 500;">Decision</td>
           <td style="padding: 10px 0; color: #15803d; font-weight: 700; text-align: right;">{{decision}} (Payment Pending)</td>
         </tr>
@@ -299,6 +314,7 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<string, Omit<EmailTemplate, 'update
         <tr><td style="padding: 10px 0; color: #64748b;">Serial Suffix</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{serial_suffix}}</td></tr>
         <tr><td style="padding: 10px 0; color: #64748b;">Spiff Program</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{spiff_name}}</td></tr>
         <tr><td style="padding: 10px 0; color: #64748b;">Approved Amount</td><td style="padding: 10px 0; text-align: right; color: #15803d; font-size: 18px; font-weight: 700;">{{spiff_amount}}</td></tr>
+        <tr><td style="padding: 10px 0; color: #64748b;">Half Spiff Amount</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{half_spiff_amount}}</td></tr>
         <tr><td style="padding: 10px 0; color: #64748b;">Approved By</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{decision_by}}</td></tr>
         <tr><td style="padding: 10px 0; color: #64748b;">Approved Date</td><td style="padding: 10px 0; text-align: right; font-weight: 600;">{{decision_at}}</td></tr>
       </table>
@@ -349,6 +365,10 @@ export const DEFAULT_EMAIL_TEMPLATES: Record<string, Omit<EmailTemplate, 'update
           <td style="padding: 10px 0; color: #64748b; font-size: 18px; font-weight: 700; text-align: right;">{{spiff_amount}}</td>
         </tr>
         <tr style="border-bottom: 1px solid #f1f5f9;">
+          <td style="padding: 10px 0; color: #64748b; font-weight: 500;">Half Spiff Amount</td>
+          <td style="padding: 10px 0; color: #0f172a; font-weight: 600; text-align: right;">{{half_spiff_amount}}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #f1f5f9;">
           <td style="padding: 10px 0; color: #64748b; font-weight: 500;">Decision</td>
           <td style="padding: 10px 0; color: #b91c1c; font-weight: 700; text-align: right;">{{decision}}</td>
         </tr>
@@ -385,7 +405,8 @@ export const SAMPLE_TEMPLATE_DATA: Record<string, string> = {
   lift_name: 'Toyota 8FGU25 Pneumatic Forklift',
   serial_suffix: '4821',
   spiff_name: 'Heavy Duty Lift Spiff',
-  spiff_amount: '$150.00',
+  spiff_amount: '$75.00',
+  half_spiff_amount: 'Yes',
   sale_date: '10/08/2026',
   submitted_at: '10/08/2026 09:30 AM MST',
   decision: 'Approved',
@@ -631,6 +652,21 @@ export function renderEmailTemplate(
       // Prepend right after opening body or table
       finalBodyHtml = fixedStatusBanner + finalBodyHtml;
     }
+  }
+
+  const payoutRows: string[] = [];
+  if (!template.bodyHtml.includes('{{spiff_amount}}') && data.spiff_amount !== undefined) {
+    payoutRows.push(
+      `<tr><td style="padding: 6px 12px 6px 0; color: #64748b;">Spiff Amount</td><td style="padding: 6px 0; text-align: right; font-weight: 700;">${escapeHtml(String(data.spiff_amount))}</td></tr>`
+    );
+  }
+  if (!template.bodyHtml.includes('{{half_spiff_amount}}') && data.half_spiff_amount !== undefined) {
+    payoutRows.push(
+      `<tr><td style="padding: 6px 12px 6px 0; color: #64748b;">Half Spiff Amount</td><td style="padding: 6px 0; text-align: right; font-weight: 600;">${escapeHtml(String(data.half_spiff_amount))}</td></tr>`
+    );
+  }
+  if (payoutRows.length > 0) {
+    finalBodyHtml += `<table style="margin-top: 16px; border-collapse: collapse; font-size: 13px;">${payoutRows.join('')}</table>`;
   }
 
   // 5. Sanitize final HTML to ensure strict safety

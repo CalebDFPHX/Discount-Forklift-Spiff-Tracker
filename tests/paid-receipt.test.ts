@@ -460,6 +460,82 @@ describe('approved paid receipt notifications', () => {
     }
   });
 
+  it('uses the saved payout amount and half-spiff flag in approval, denial, and GM receipt emails', async () => {
+    const halfSubmission = memoryStore.submissions.find((submission) => submission.id === submissionId)!;
+    halfSubmission.snapshotAmountCents = 6251;
+    halfSubmission.isHalfSpiffAmount = true;
+
+    await Repository.decideSubmission(
+      submissionId,
+      'admin@example.test',
+      { decision: 'approve', recipients: [], appUrl: APP_URL },
+      successfulMock
+    );
+
+    const halfJobs = memoryStore.emailJobs.filter(
+      (job) => job.submissionId === submissionId
+    );
+    assert.ok(halfJobs.some((job) => job.templateId === 'spiff_approved'));
+    assert.ok(halfJobs.some((job) => job.templateId === 'spiff_approved_paid_receipt'));
+    for (const job of halfJobs) {
+      assert.match(job.renderedBodyHtml || '', /\$62\.51/);
+      assert.match(job.renderedBodyHtml || '', /Half Spiff Amount[\s\S]*Yes/);
+    }
+
+    const fullSubmissionId = 'SPF-2026-FULL01';
+    memoryStore.submissions.push({
+      ...halfSubmission,
+      id: fullSubmissionId,
+      status: 'Pending',
+      snapshotAmountCents: 10001,
+      isHalfSpiffAmount: false,
+      approvedAt: null,
+      approvedBy: null,
+      rejectedAt: null,
+      rejectedBy: null,
+      rejectionReason: null,
+      paidAt: null,
+      paidBy: null,
+      auditEvents: [],
+    });
+
+    try {
+      await Repository.decideSubmission(
+        fullSubmissionId,
+        'admin@example.test',
+        {
+          decision: 'deny',
+          reasonOrMessage: 'Test denial',
+          recipients: [
+            { email: 'gm.one@example.test', name: 'Active GM One', role: 'General Manager' },
+            { email: 'accounting@discountforkliftphoenix.com', name: 'Accounting', role: 'Accounting' },
+          ],
+          appUrl: APP_URL,
+        },
+        successfulMock
+      );
+
+      const denialJobs = memoryStore.emailJobs.filter(
+        (job) => job.submissionId === fullSubmissionId
+      );
+      assert.ok(denialJobs.length >= 2);
+      for (const job of denialJobs) {
+        assert.match(job.renderedBodyHtml || '', /\$100\.01/);
+        assert.match(job.renderedBodyHtml || '', /Half Spiff Amount[\s\S]*No/);
+      }
+    } finally {
+      memoryStore.submissions = memoryStore.submissions.filter(
+        (submission) => submission.id !== fullSubmissionId
+      );
+      memoryStore.emailJobs = memoryStore.emailJobs.filter(
+        (job) => job.submissionId !== fullSubmissionId
+      );
+      memoryStore.auditEvents = memoryStore.auditEvents.filter(
+        (event) => event.submissionId !== fullSubmissionId
+      );
+    }
+  });
+
   it('returns saved template identity and does not mutate statuses when reading the log', async () => {
     await Repository.decideSubmission(
       submissionId,

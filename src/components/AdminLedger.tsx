@@ -495,7 +495,10 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
 
                     {/* Spiff Amount */}
                     <td className="py-3 px-3 font-bold text-white whitespace-nowrap">
-                      {formatDollars(sub.snapshotAmountCents)}
+                      <div>{formatDollars(sub.snapshotAmountCents)}</div>
+                      <div className="mt-1 text-[10px] font-medium text-gray-400">
+                        Half spiff: {sub.isHalfSpiffAmount ? 'Yes' : 'No'}
+                      </div>
                     </td>
 
                     {/* Sale Date */}

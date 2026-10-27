@@ -1745,6 +1745,7 @@ export const Repository = {
       serial_suffix: cleanSerial,
       spiff_name: spiff.name,
       spiff_amount: formatDollars(serverAmountCents),
+      half_spiff_amount: isHalfSpiffAmount ? 'Yes' : 'No',
       saleDate: formatPhoenixDate(newSubmission.saleDate),
       submitted_at: formatPhoenixDateTime(newSubmission.submittedAt),
       admin_review_url: `${baseUrl}/admin?request=${submissionId}`,
@@ -2238,6 +2239,7 @@ export const Repository = {
         serial_suffix: submission.serialSuffix,
         spiff_name: submission.snapshotSpiffName,
         spiff_amount: formatDollars(submission.snapshotAmountCents),
+        half_spiff_amount: submission.isHalfSpiffAmount ? 'Yes' : 'No',
         sale_date: formatPhoenixDate(submission.saleDate),
         submitted_at: formatPhoenixDateTime(submission.submittedAt),
         decision: 'Approved',
@@ -2615,6 +2617,7 @@ export const Repository = {
         serial_suffix: sub.serialSuffix,
         spiff_name: sub.snapshotSpiffName,
         spiff_amount: formatDollars(sub.snapshotAmountCents),
+        half_spiff_amount: sub.isHalfSpiffAmount ? 'Yes' : 'No',
         sale_date: formatPhoenixDate(sub.saleDate),
         submitted_at: formatPhoenixDateTime(sub.submittedAt),
         decision: decisionText,
@@ -3544,14 +3547,11 @@ export const Repository = {
         if (job.jobType === 'decision_result') {
           let originalDecision = 'Approved';
           let originalReasonOrMessage = sub.decisionMessage;
-          let originalAmount = formatDollars(sub.snapshotAmountCents);
-
           if (job.eventPayload) {
             try {
               const parsed = JSON.parse(job.eventPayload);
               if (parsed.originalDecision) originalDecision = parsed.originalDecision;
               if (parsed.explanation !== undefined) originalReasonOrMessage = parsed.explanation;
-              if (parsed.amountFormatted) originalAmount = parsed.amountFormatted;
             } catch {}
           } else if (sub.status === 'Approved' || sub.status === 'Paid' || Boolean(sub.approvedAt)) {
             originalDecision = 'Approved';
@@ -3577,7 +3577,8 @@ export const Repository = {
             lift_name: sub.liftName,
             serial_suffix: sub.serialSuffix,
             spiff_name: sub.snapshotSpiffName,
-            spiff_amount: originalAmount,
+            spiff_amount: formatDollars(sub.snapshotAmountCents),
+            half_spiff_amount: sub.isHalfSpiffAmount ? 'Yes' : 'No',
             sale_date: formatPhoenixDate(sub.saleDate),
             submitted_at: formatPhoenixDateTime(sub.submittedAt),
             decision: originalDecision,
@@ -3610,6 +3611,7 @@ export const Repository = {
             serial_suffix: sub.serialSuffix,
             spiff_name: sub.snapshotSpiffName,
             spiff_amount: formatDollars(sub.snapshotAmountCents),
+            half_spiff_amount: sub.isHalfSpiffAmount ? 'Yes' : 'No',
             sale_date: formatPhoenixDate(sub.saleDate),
             submitted_at: formatPhoenixDateTime(sub.submittedAt),
             admin_review_url: `${baseUrl}/admin?request=${sub.id}`,

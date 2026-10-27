@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit",
     "test:paid-receipts": "tsx --test tests/paid-receipt.test.ts",
     "test:email-sender": "tsx --test tests/email-sender.test.ts",
+    "test:email-amounts": "tsx --test tests/email-amounts.test.ts",
     "test:photos": "tsx --test tests/photo-submission.test.ts",
     "test:weekly-report": "tsx --test tests/weekly-spiff-report.test.ts tests/weekly-spiff-report-admin.test.ts",
     "db:generate": "drizzle-kit generate",

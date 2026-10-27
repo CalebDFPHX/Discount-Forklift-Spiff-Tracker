@@ -67,7 +67,7 @@ function resetFixtures() {
     name: 'Photo Test Spiff',
     description: 'Test-only spiff',
     eligibilityRequirements: 'Test-only requirements',
-    amountCents: 10000,
+    amountCents: 10001,
     isActive: true,
     displayOrder: 999,
     createdAt: now,
@@ -300,7 +300,7 @@ describe('photo submission and reviewer access', () => {
       assert.equal(fullResponse.status, 200, JSON.stringify(fullBody));
       testSubmissionIds.add(fullBody.submission.id);
       assert.equal(fullBody.submission.isHalfSpiffAmount, false);
-      assert.equal(fullBody.submission.snapshotAmountCents, 10000);
+      assert.equal(fullBody.submission.snapshotAmountCents, 10001);
 
       const halfAttachmentId = await uploadTestPhoto(baseUrl);
       const halfResponse = await fetch(`${baseUrl}/api/submissions`, {
@@ -316,13 +316,32 @@ describe('photo submission and reviewer access', () => {
       assert.equal(halfResponse.status, 200, JSON.stringify(halfBody));
       testSubmissionIds.add(halfBody.submission.id);
       assert.equal(halfBody.submission.isHalfSpiffAmount, true);
-      assert.equal(halfBody.submission.snapshotAmountCents, 5000);
-      assert.equal(memoryStore.spiffs.find((spiff) => spiff.id === testSpiffId)?.amountCents, 10000);
+      assert.equal(halfBody.submission.snapshotAmountCents, 5001);
+      assert.equal(memoryStore.spiffs.find((spiff) => spiff.id === testSpiffId)?.amountCents, 10001);
 
       const fullEmail = memoryStore.emailJobs.find((job) => job.submissionId === fullBody.submission.id);
       const halfEmail = memoryStore.emailJobs.find((job) => job.submissionId === halfBody.submission.id);
-      assert.match(fullEmail?.renderedBodyHtml || '', /\$100\.00/);
-      assert.match(halfEmail?.renderedBodyHtml || '', /\$50\.00/);
+      assert.match(fullEmail?.renderedBodyHtml || '', /\$100\.01/);
+      assert.match(fullEmail?.renderedBodyHtml || '', /Half Spiff Amount[\s\S]*No/);
+      assert.match(halfEmail?.renderedBodyHtml || '', /\$50\.01/);
+      assert.match(halfEmail?.renderedBodyHtml || '', /Half Spiff Amount[\s\S]*Yes/);
+
+      memoryStore.spiffs.find((spiff) => spiff.id === testSpiffId)!.amountCents = 25000;
+      const savedFull = await Repository.getSubmissionById(fullBody.submission.id);
+      const savedHalf = await Repository.getSubmissionById(halfBody.submission.id);
+      assert.equal(savedFull?.snapshotAmountCents, 10001);
+      assert.equal(savedFull?.isHalfSpiffAmount, false);
+      assert.equal(savedHalf?.snapshotAmountCents, 5001);
+      assert.equal(savedHalf?.isHalfSpiffAmount, true);
+      const ledgerSubmissions = await Repository.getSubmissions();
+      assert.equal(
+        ledgerSubmissions.find((submission) => submission.id === fullBody.submission.id)?.snapshotAmountCents,
+        10001
+      );
+      assert.equal(
+        ledgerSubmissions.find((submission) => submission.id === halfBody.submission.id)?.isHalfSpiffAmount,
+        true
+      );
     });
   });
 
