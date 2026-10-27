@@ -204,6 +204,7 @@ export interface SpiffSubmission {
   snapshotSpiffName: string;
   snapshotEligibilityRequirements: string;
   snapshotAmountCents: number;
+  isHalfSpiffAmount: boolean;
   isPotentialDuplicate: boolean;
   duplicateReason?: string | null;
   decisionMessage?: string | null;
@@ -228,6 +229,8 @@ export interface WeeklySpiffReportSubmission {
   liftName: string;
   serialSuffix: string;
   spiffName: string;
+  amountCents: number;
+  isHalfSpiffAmount: boolean;
   notes: string | null;
   status: string;
   approvedAt: string | null;
@@ -848,6 +851,8 @@ export const Repository = {
           liftName: schema.spiffSubmissions.liftName,
           serialSuffix: schema.spiffSubmissions.serialSuffix,
           spiffName: schema.spiffSubmissions.snapshotSpiffName,
+          amountCents: schema.spiffSubmissions.snapshotAmountCents,
+          isHalfSpiffAmount: schema.spiffSubmissions.isHalfSpiffAmount,
           notes: schema.spiffSubmissions.notes,
           status: schema.spiffSubmissions.status,
           approvedAt: schema.spiffSubmissions.approvedAt,
@@ -911,6 +916,8 @@ export const Repository = {
         liftName: submission.liftName,
         serialSuffix: submission.serialSuffix,
         spiffName: submission.snapshotSpiffName,
+        amountCents: submission.snapshotAmountCents,
+        isHalfSpiffAmount: submission.isHalfSpiffAmount,
         notes: submission.notes || null,
         status: submission.status,
         approvedAt: submission.approvedAt || null,
@@ -1565,6 +1572,7 @@ export const Repository = {
     notes?: string;
     attachmentIds?: string[];
     attachmentId?: string;
+    halfSpiffAmount?: boolean;
     idempotencyKey?: string;
     appUrl?: string;
   }): Promise<{ submission: SpiffSubmission; isDuplicateAttempt: boolean }> {
@@ -1582,6 +1590,9 @@ export const Repository = {
     if (!input.branchId) throw new Error('Branch is required.');
     if (!input.repId) throw new Error('Sales rep is required.');
     if (!input.spiffId) throw new Error('Eligible spiff is required.');
+    if (input.halfSpiffAmount !== undefined && typeof input.halfSpiffAmount !== 'boolean') {
+      throw new Error('Half spiff amount must be a boolean.');
+    }
     if (!input.liftName || !input.liftName.trim()) throw new Error('Lift name / model is required.');
     if (!input.saleDate) throw new Error('Sale date is required.');
 
@@ -1645,7 +1656,10 @@ export const Repository = {
     }
 
     // 3. Spiff amount is strictly calculated on server from the database record snapshot
-    const serverAmountCents = spiff.amountCents;
+    const isHalfSpiffAmount = input.halfSpiffAmount ?? false;
+    const serverAmountCents = isHalfSpiffAmount
+      ? Math.round(spiff.amountCents / 2)
+      : spiff.amountCents;
 
     // 4. Check for potential duplicate submissions (matching lift name & serial suffix or spiff)
     let isPotentialDuplicate = false;
@@ -1705,6 +1719,7 @@ export const Repository = {
       snapshotSpiffName: spiff.name,
       snapshotEligibilityRequirements: spiff.eligibilityRequirements,
       snapshotAmountCents: serverAmountCents,
+      isHalfSpiffAmount,
       isPotentialDuplicate,
       duplicateReason,
       submittedAt: now,
@@ -1810,6 +1825,7 @@ export const Repository = {
           snapshotSpiffName: newSubmission.snapshotSpiffName,
           snapshotEligibilityRequirements: newSubmission.snapshotEligibilityRequirements,
           snapshotAmountCents: newSubmission.snapshotAmountCents,
+          isHalfSpiffAmount: newSubmission.isHalfSpiffAmount,
           isPotentialDuplicate: newSubmission.isPotentialDuplicate,
           duplicateReason: newSubmission.duplicateReason,
         });

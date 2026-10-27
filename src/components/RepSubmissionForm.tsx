@@ -28,6 +28,7 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
   const [serialSuffix, setSerialSuffix] = useState('');
   const [saleDate, setSaleDate] = useState(getPhoenixTodayString());
   const [selectedSpiffId, setSelectedSpiffId] = useState('');
+  const [halfSpiffAmount, setHalfSpiffAmount] = useState(false);
   const [notes, setNotes] = useState('');
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
@@ -126,6 +127,7 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
           repId: selectedRepId,
           branchId: selectedBranchId,
           spiffId: selectedSpiffId,
+          halfSpiffAmount,
           liftName: liftName.trim(),
           serialSuffix: serialCheck.normalized,
           saleDate,
@@ -386,13 +388,23 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
             ))}
           </select>
 
+          <label className="mt-3 flex items-center gap-2 text-sm font-medium text-gray-200">
+            <input
+              type="checkbox"
+              checked={halfSpiffAmount}
+              onChange={(e) => setHalfSpiffAmount(e.target.checked)}
+              className="h-4 w-4 rounded border-[#444444] bg-[#1e1e1e] accent-[#95EA00] focus:ring-2 focus:ring-[#95EA00]"
+            />
+            Half spiff amount
+          </label>
+
           {/* Show selected spiff description, requirements, and amount before submission */}
           {selectedSpiff && (
             <div className="mt-3 p-4 bg-[#242424] border border-[#444444] rounded-lg space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-sm text-white">{selectedSpiff.name}</span>
                 <span className="text-base font-extrabold text-[#95EA00] bg-[#1e1e1e] px-2.5 py-0.5 rounded border border-[#444444] shadow-xs">
-                  {formatDollars(selectedSpiff.amountCents)}
+                  {formatDollars(halfSpiffAmount ? Math.round(selectedSpiff.amountCents / 2) : selectedSpiff.amountCents)}
                 </span>
               </div>
               <p className="text-xs text-gray-300 leading-relaxed">

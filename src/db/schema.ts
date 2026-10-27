@@ -72,6 +72,7 @@ export const spiffSubmissions = pgTable(
     snapshotSpiffName: varchar('snapshot_spiff_name', { length: 255 }).notNull(),
     snapshotEligibilityRequirements: text('snapshot_eligibility_requirements').notNull(),
     snapshotAmountCents: integer('snapshot_amount_cents').notNull(),
+    isHalfSpiffAmount: boolean('is_half_spiff_amount').default(false).notNull(),
 
     // Potential duplicate flag
     isPotentialDuplicate: boolean('is_potential_duplicate').default(false).notNull(),

@@ -18,6 +18,8 @@ const fixture: WeeklySpiffReportSubmission = {
   liftName: 'Forklift "Model X"',
   serialSuffix: '0042',
   spiffName: 'Quick Sale',
+  amountCents: 5000,
+  isHalfSpiffAmount: true,
   notes: 'Paid, after review',
   status: 'Rejected',
   approvedAt: '2026-10-20T15:00:00.000Z',
@@ -67,6 +69,10 @@ describe('weekly Spiff report', () => {
     assert.match(csv, /"Phoenix, Main"/);
     assert.match(csv, /"Forklift ""Model X"""/);
     assert.match(csv, /"Denied"/);
+    assert.match(csv, /"Spiff Amount"/);
+    assert.match(csv, /"\$50\.00"/);
+    assert.match(csv, /"Half Spiff Amount"/);
+    assert.match(csv, /"Yes"/);
     assert.match(csv, /Accounting Manager/);
     assert.match(csv, /Missing documentation/);
     assert.match(csv, /"2"/);

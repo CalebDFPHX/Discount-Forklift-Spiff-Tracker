@@ -64,6 +64,13 @@
       "when": 1793030400001,
       "tag": "0008_weekly_spiff_report_test_sends",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793120000000,
+      "tag": "0009_half_spiff_amount",
+      "breakpoints": true
     }
   ]
 }

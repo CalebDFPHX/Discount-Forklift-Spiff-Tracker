@@ -276,6 +276,56 @@ describe('photo submission and reviewer access', () => {
     });
   });
 
+  it('uses the configured full amount by default and calculates half amounts server-side', async () => {
+    await withServer(async (baseUrl) => {
+      const invalidAttachmentId = await uploadTestPhoto(baseUrl);
+      const invalidResponse = await fetch(`${baseUrl}/api/submissions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...submissionInput([invalidAttachmentId]),
+          halfSpiffAmount: 'true',
+        }),
+      });
+      assert.equal(invalidResponse.status, 400);
+      assert.match((await invalidResponse.json()).error, /half spiff amount must be a boolean/i);
+
+      const fullAttachmentId = await uploadTestPhoto(baseUrl);
+      const fullResponse = await fetch(`${baseUrl}/api/submissions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(submissionInput([fullAttachmentId])),
+      });
+      const fullBody = await fullResponse.json();
+      assert.equal(fullResponse.status, 200, JSON.stringify(fullBody));
+      testSubmissionIds.add(fullBody.submission.id);
+      assert.equal(fullBody.submission.isHalfSpiffAmount, false);
+      assert.equal(fullBody.submission.snapshotAmountCents, 10000);
+
+      const halfAttachmentId = await uploadTestPhoto(baseUrl);
+      const halfResponse = await fetch(`${baseUrl}/api/submissions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...submissionInput([halfAttachmentId]),
+          halfSpiffAmount: true,
+          amountCents: 1,
+        }),
+      });
+      const halfBody = await halfResponse.json();
+      assert.equal(halfResponse.status, 200, JSON.stringify(halfBody));
+      testSubmissionIds.add(halfBody.submission.id);
+      assert.equal(halfBody.submission.isHalfSpiffAmount, true);
+      assert.equal(halfBody.submission.snapshotAmountCents, 5000);
+      assert.equal(memoryStore.spiffs.find((spiff) => spiff.id === testSpiffId)?.amountCents, 10000);
+
+      const fullEmail = memoryStore.emailJobs.find((job) => job.submissionId === fullBody.submission.id);
+      const halfEmail = memoryStore.emailJobs.find((job) => job.submissionId === halfBody.submission.id);
+      assert.match(fullEmail?.renderedBodyHtml || '', /\$100\.00/);
+      assert.match(halfEmail?.renderedBodyHtml || '', /\$50\.00/);
+    });
+  });
+
   it('accepts five photos, blocks a sixth server-side, links all five, and limits reviewer access', async () => {
     const allAssertionsPassed = await withServer(async (baseUrl) => {
       const sixAttachmentIds = await Promise.all(

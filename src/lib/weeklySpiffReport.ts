@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { isBlockedNotificationRecipient } from './recipientPolicy.js';
+import { formatDollars } from './formatters.js';
 import { formatPhoenixDateTime, TIMEZONE } from './timezone.js';
 import type { WeeklySpiffReportSubmission } from './repository.js';
 
@@ -98,6 +99,8 @@ const CSV_HEADERS = [
   'Lift Name',
   'Serial Suffix',
   'Spiff Type',
+  'Spiff Amount',
+  'Half Spiff Amount',
   'Notes',
   'Status',
   'Approval Date',
@@ -136,6 +139,8 @@ export function buildWeeklySpiffReportCsv(submissions: WeeklySpiffReportSubmissi
     submission.liftName,
     submission.serialSuffix,
     submission.spiffName,
+    formatDollars(submission.amountCents),
+    submission.isHalfSpiffAmount ? 'Yes' : 'No',
     submission.notes,
     reportStatus(submission.status),
     phoenixDate(submission.approvedAt),

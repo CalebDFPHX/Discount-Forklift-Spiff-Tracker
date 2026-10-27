@@ -86,6 +86,7 @@ function addFixture(assignedGmIds = 'gm_1,gm_2', status: 'Pending' | 'Approved' 
     snapshotSpiffName: 'Test Spiff',
     snapshotEligibilityRequirements: '',
     snapshotAmountCents: 12500,
+    isHalfSpiffAmount: false,
     isPotentialDuplicate: false,
     submittedAt: now,
     approvedAt: status === 'Pending' ? null : now,
