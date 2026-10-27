@@ -112,7 +112,7 @@ When connecting a production Neon database to Vercel or cloud hosting:
 
 ### 5. Configuring Email Notifications
 
-The app can send notifications through Gmail SMTP or Resend. Gmail is selected when both `GMAIL_USER` and `GMAIL_APP_PASSWORD` are set; otherwise, the app uses Resend if `RESEND_API_KEY` is configured.
+The app can send notifications through Gmail SMTP, Outlook SMTP, or Resend. Gmail is selected when both `GMAIL_USER` and `GMAIL_APP_PASSWORD` are set; otherwise, Outlook is selected when both `OUTLOOK_USER` and `OUTLOOK_PASSWORD` are set; Resend is used when neither SMTP account is configured and `RESEND_API_KEY` is configured. Every provider uses the display name **Discount Forklift Spiff Tracker** and keeps its configured, verified, or authorized sender address.
 
 #### Gmail SMTP (no sending domain required)
 1. Use the Gmail account that should send app notifications and enable [2-Step Verification](https://myaccount.google.com/signinoptions/two-step-verification).
@@ -127,6 +127,18 @@ The app can send notifications through Gmail SMTP or Resend. Gmail is selected w
 5. In **Admin Settings > Notification Routing**, set the recipient email, then send a test email from **Email Templates** to verify delivery.
 
 For local development, use the same two variables in the ignored local `.env` file and restart the server. Gmail is intended for low-volume notifications and has sending limits; Google Workspace administrators may also restrict SMTP or App Password use.
+
+#### Outlook SMTP
+1. Configure an Outlook.com or Microsoft 365 mailbox for authenticated SMTP. Microsoft 365 tenants may need SMTP AUTH enabled for the mailbox.
+2. Set these environment variables:
+   ```env
+   OUTLOOK_USER="youraddress@outlook.com"
+   OUTLOOK_PASSWORD="your-mailbox-or-app-password"
+   ```
+   The sender address defaults to `OUTLOOK_USER`. To use a different address, set `OUTLOOK_FROM_EMAIL` only to an address authorized for that mailbox's Send As permission. Do not use the display name setting to disguise the sender address.
+3. The default SMTP host is `smtp-mail.outlook.com` on port 587 with TLS. For Microsoft 365, set `OUTLOOK_SMTP_HOST="smtp.office365.com"` if required by your tenant.
+
+The sender header for Gmail uses `GMAIL_USER`; Outlook uses `OUTLOOK_FROM_EMAIL` (or `OUTLOOK_USER` when unset); and Resend uses `RESEND_FROM_EMAIL` (defaulting to `notifications@discountforkliftphoenix.com`). The Resend address must be verified by Resend.
 
 Notification recipient menus are populated from active contacts configured in Neon. If no active contacts are configured, add them in **Notifications & Contacts**; the app will not substitute sample or fallback recipients.
 
@@ -200,8 +212,12 @@ In your Vercel project's **Settings > Environment Variables**, add the following
 | `AUTH_TRUST_HOST` | `true` |
 | `INITIAL_ADMIN_EMAIL` | `caleb@discountforkliftphoenix.com` |
 | `GMAIL_USER` | Gmail address used to send notifications (optional; use with `GMAIL_APP_PASSWORD`) |
-| `GMAIL_APP_PASSWORD` | Google App Password (optional; takes precedence over Resend when both Gmail variables are set) |
-| `RESEND_API_KEY` | Resend API key (`re_...`; optional alternative to Gmail) |
+| `GMAIL_APP_PASSWORD` | Google App Password (optional; takes precedence over Outlook and Resend when both Gmail variables are set) |
+| `OUTLOOK_USER` | Outlook SMTP login and default sender address (optional; use with `OUTLOOK_PASSWORD`) |
+| `OUTLOOK_PASSWORD` | Outlook mailbox or app password (optional; used after Gmail and before Resend) |
+| `OUTLOOK_FROM_EMAIL` | Optional Outlook sender address authorized for the mailbox |
+| `OUTLOOK_SMTP_HOST` | Optional Outlook SMTP host (defaults to `smtp-mail.outlook.com`) |
+| `RESEND_API_KEY` | Resend API key (`re_...`; optional alternative to Gmail or Outlook SMTP) |
 | `RESEND_FROM_EMAIL` | Verified sender (when using Resend) |
 | `NOTIFICATION_RECIPIENT_EMAIL` | Office manager email receiving alerts |
 | `BLOB_READ_WRITE_TOKEN` | Generated automatically by Vercel Blob |

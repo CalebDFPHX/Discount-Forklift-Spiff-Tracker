@@ -6,24 +6,39 @@ const resendApiKey = process.env.RESEND_API_KEY;
 const fromEmail = process.env.RESEND_FROM_EMAIL || 'notifications@discountforkliftphoenix.com';
 const gmailUser = process.env.GMAIL_USER?.trim();
 const gmailAppPassword = process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, '');
+const outlookUser = process.env.OUTLOOK_USER?.trim();
+const outlookPassword = process.env.OUTLOOK_PASSWORD?.replace(/\s/g, '');
+const outlookFromEmail = process.env.OUTLOOK_FROM_EMAIL?.trim() || outlookUser;
+const outlookSmtpHost = process.env.OUTLOOK_SMTP_HOST?.trim() || 'smtp-mail.outlook.com';
 export const hasGmailConfiguration = Boolean(gmailUser || gmailAppPassword);
+export const hasOutlookConfiguration = Boolean(outlookUser || outlookPassword);
 
 export const isResendConfigured = Boolean(resendApiKey && resendApiKey.startsWith('re_'));
 export const isGmailConfigured = Boolean(gmailUser && gmailAppPassword);
+export const isOutlookConfigured = Boolean(outlookUser && outlookPassword && outlookFromEmail);
 export const isEmailConfigured =
-  isGmailConfigured || (!hasGmailConfiguration && isResendConfigured);
+  isGmailConfigured ||
+  (!hasGmailConfiguration && isOutlookConfigured) ||
+  (!hasGmailConfiguration && !hasOutlookConfiguration && isResendConfigured);
 export const emailProvider = isGmailConfigured
   ? 'gmail'
-  : !hasGmailConfiguration && isResendConfigured
-    ? 'resend'
-    : null;
+  : !hasGmailConfiguration && isOutlookConfigured
+    ? 'outlook'
+    : !hasGmailConfiguration && !hasOutlookConfiguration && isResendConfigured
+      ? 'resend'
+      : null;
 
 export const resend = isResendConfigured && resendApiKey ? new Resend(resendApiKey) : null;
+
+export function formatFromHeader(senderAddress: string): string {
+  return `"Discount Forklift Spiff Tracker" <${senderAddress}>`;
+}
 
 export function inspectSmtpRecipientAcceptance(
   recipient: string,
   accepted: Array<string | { address: string }>,
-  rejected: Array<string | { address: string }>
+  rejected: Array<string | { address: string }>,
+  provider: 'gmail_smtp' | 'outlook_smtp' = 'gmail_smtp'
 ): {
   acceptedRecipients: string[];
   rejectedRecipients: string[];
@@ -40,19 +55,20 @@ export function inspectSmtpRecipientAcceptance(
   const missingRecipients = targets.filter(
     (target) => !acceptedRecipients.includes(target) || rejectedRecipients.includes(target)
   );
+  const providerName = provider === 'outlook_smtp' ? 'Outlook SMTP' : 'Gmail SMTP';
 
   return {
     acceptedRecipients,
     rejectedRecipients,
     providerResponse: JSON.stringify({
-      provider: 'gmail_smtp',
+      provider,
       accepted: acceptedRecipients,
       rejected: rejectedRecipients,
     }),
     ...(missingRecipients.length === 0
       ? {}
       : {
-          error: `Gmail SMTP did not accept ${missingRecipients.join(', ')}. Accepted recipients: ${
+          error: `${providerName} did not accept ${missingRecipients.join(', ')}. Accepted recipients: ${
             acceptedRecipients.join(', ') || 'none'
           }. Rejected recipients: ${rejectedRecipients.join(', ') || 'none'}.`,
         }),
@@ -74,6 +90,7 @@ export function sanitizeEmailProviderError(error: unknown): string {
     process.env.AUTH_SECRET,
     process.env.NEXTAUTH_SECRET,
     gmailAppPassword,
+    outlookPassword,
     resendApiKey,
   ]) {
     if (secret) message = message.split(secret).join('[redacted]');
@@ -82,13 +99,26 @@ export function sanitizeEmailProviderError(error: unknown): string {
     /([A-Za-z0-9_-]{20,}\.){1,2}[A-Za-z0-9_-]{20,}/g,
     '[redacted action token]'
   );
-  if (/535|534|authentication|credentials|invalid login/i.test(message)) {
+  if (/535|534|authentication|credentials|invalid login/i.test(message) && emailProvider === 'gmail') {
     return 'Gmail SMTP authentication failed. Check GMAIL_USER and GMAIL_APP_PASSWORD in the deployment environment.';
+  }
+  if (/535|534|authentication|credentials|invalid login/i.test(message) && emailProvider === 'outlook') {
+    return 'Outlook SMTP authentication failed. Check OUTLOOK_USER and OUTLOOK_PASSWORD in the deployment environment.';
   }
   if (/ETIMEDOUT|ECONNECTION|ENOTFOUND|ESOCKET|timeout/i.test(message)) {
     return 'Could not connect to the email provider. Check the deployment network and email settings.';
   }
   return message.slice(0, 500);
+}
+
+function getIncompleteEmailConfigurationError(): string | null {
+  if (hasGmailConfiguration && !isGmailConfigured) {
+    return 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.';
+  }
+  if (hasOutlookConfiguration && !isOutlookConfigured) {
+    return 'OUTLOOK_USER and OUTLOOK_PASSWORD must both be configured.';
+  }
+  return null;
 }
 
 async function deliverEmail(params: {
@@ -118,7 +148,7 @@ async function deliverEmail(params: {
         },
       });
       const result = await transport.sendMail({
-        from: `"Discount Forklift Spiff Tracker" <${gmailUser}>`,
+        from: formatFromHeader(gmailUser),
         to: params.to,
         subject: params.subject,
         html: params.html,
@@ -135,7 +165,53 @@ async function deliverEmail(params: {
       const recipientResult = inspectSmtpRecipientAcceptance(
         recipients.join(','),
         result.accepted,
-        result.rejected
+        result.rejected,
+        'gmail_smtp'
+      );
+
+      return {
+        success: !recipientResult.error,
+        status: recipientResult.error ? 'failed' : 'accepted',
+        acceptedByProvider: recipientResult.acceptedRecipients.some((email) =>
+          recipients.some((recipient) => recipient.trim().toLowerCase() === email)
+        ),
+        providerMessageId: result.messageId,
+        providerResponse: recipientResult.providerResponse,
+        error: recipientResult.error,
+      };
+    }
+
+    if (isOutlookConfigured && outlookUser && outlookPassword && outlookFromEmail) {
+      const transport = nodemailer.createTransport({
+        host: outlookSmtpHost,
+        port: 587,
+        secure: false,
+        requireTLS: true,
+        auth: {
+          user: outlookUser,
+          pass: outlookPassword,
+        },
+      });
+      const result = await transport.sendMail({
+        from: formatFromHeader(outlookFromEmail),
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+        ...(params.attachments
+          ? {
+              attachments: params.attachments.map((attachment) => ({
+                filename: attachment.filename,
+                content: attachment.content,
+                contentType: attachment.contentType,
+              })),
+            }
+          : {}),
+      });
+      const recipientResult = inspectSmtpRecipientAcceptance(
+        recipients.join(','),
+        result.accepted,
+        result.rejected,
+        'outlook_smtp'
       );
 
       return {
@@ -154,9 +230,7 @@ async function deliverEmail(params: {
       return {
         success: false,
         status: 'failed',
-        error: hasGmailConfiguration
-          ? 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.'
-          : 'Email delivery is not configured.',
+        error: getIncompleteEmailConfigurationError() || 'Email delivery is not configured.',
       };
     }
 
@@ -167,7 +241,7 @@ async function deliverEmail(params: {
 
     const response = await resend.emails.send(
       {
-        from: fromEmail,
+        from: formatFromHeader(fromEmail),
         to: recipients,
         subject: params.subject,
         html: params.html,
@@ -208,7 +282,8 @@ async function deliverEmail(params: {
       const recipientResult = inspectSmtpRecipientAcceptance(
         recipients.join(','),
         smtpRecipients.accepted,
-        smtpRecipients.rejected
+        smtpRecipients.rejected,
+        emailProvider === 'outlook' ? 'outlook_smtp' : 'gmail_smtp'
       );
       const message =
         recipientResult.error || sanitizeEmailProviderError(error);
@@ -223,6 +298,7 @@ async function deliverEmail(params: {
         error: message,
       };
     }
+
     const message = sanitizeEmailProviderError(error);
     console.error(`[Email] ${emailProvider || 'Provider'} delivery failed: ${message}`);
     return {
@@ -281,11 +357,12 @@ export async function sendSpiffSubmissionEmail(payload: SpiffNotificationPayload
   }
 
   if (!isEmailConfigured) {
-    if (hasGmailConfiguration) {
+    const configurationError = getIncompleteEmailConfigurationError();
+    if (configurationError) {
       return {
         success: false,
         status: 'failed',
-        error: 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.',
+        error: configurationError,
       };
     }
     console.warn('[Resend] RESEND_API_KEY not configured. Simulating submission notification delivery.');
@@ -404,11 +481,12 @@ export async function sendSpiffDecisionResultEmail(
   }
 
   if (!isEmailConfigured) {
-    if (hasGmailConfiguration) {
+    const configurationError = getIncompleteEmailConfigurationError();
+    if (configurationError) {
       return {
         success: false,
         status: 'failed',
-        error: 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.',
+        error: configurationError,
       };
     }
     console.warn(`[Resend] RESEND_API_KEY not configured. Simulating decision email delivery to ${targetRecipient.email}.`);
@@ -545,9 +623,9 @@ export async function sendRenderedEmail(params: {
   }
 
   if (!isEmailConfigured) {
-    const errorMsg = hasGmailConfiguration
-      ? 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.'
-      : 'Email delivery unavailable: configure Gmail SMTP or Resend environment variables.';
+    const errorMsg =
+      getIncompleteEmailConfigurationError() ||
+      'Email delivery unavailable: configure Gmail SMTP, Outlook SMTP, or Resend environment variables.';
     console.warn(`[Email] ${errorMsg}`);
     return {
       success: false,
@@ -584,9 +662,9 @@ export async function sendWeeklySpiffReportEmail(params: {
   }
 
   if (!isEmailConfigured) {
-    const errorMsg = hasGmailConfiguration
-      ? 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.'
-      : 'Email delivery unavailable: configure Gmail SMTP or Resend environment variables.';
+    const errorMsg =
+      getIncompleteEmailConfigurationError() ||
+      'Email delivery unavailable: configure Gmail SMTP, Outlook SMTP, or Resend environment variables.';
     console.warn(`[Email] ${errorMsg}`);
     return {
       success: false,

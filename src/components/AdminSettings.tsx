@@ -352,7 +352,15 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser, adminRo
               <span>Neon</span>
               <span className="text-gray-500">•</span>
               <span className={`w-2 h-2 rounded-full ${statusInfo?.isEmailConfigured ? 'bg-[#95EA00]' : 'bg-[#A559BD]'}`} />
-              <span>{statusInfo?.emailProvider === 'gmail' ? 'Gmail' : 'Email'}</span>
+              <span>
+                {statusInfo?.emailProvider === 'gmail'
+                  ? 'Gmail'
+                  : statusInfo?.emailProvider === 'outlook'
+                    ? 'Outlook'
+                    : statusInfo?.emailProvider === 'resend'
+                      ? 'Resend'
+                      : 'Email'}
+              </span>
               <span className="text-gray-500">•</span>
               <span className={`w-2 h-2 rounded-full ${statusInfo?.isBlobConfigured ? 'bg-[#95EA00]' : 'bg-purple-400'}`} />
               <span>Blob</span>
@@ -395,18 +403,24 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser, adminRo
                 <p className="text-xs text-gray-300 mb-2">
                   {statusInfo?.emailProvider === 'gmail'
                     ? 'Gmail SMTP is active for app notifications.'
-                    : statusInfo?.emailProvider === 'resend'
-                      ? 'Resend is active for app notifications.'
-                      : statusInfo?.hasGmailConfiguration
-                        ? 'Gmail SMTP setup is incomplete. Configure both Gmail environment variables.'
-                        : 'No email provider configured. Notifications are simulated in preview.'}
+                    : statusInfo?.emailProvider === 'outlook'
+                      ? 'Outlook SMTP is active for app notifications.'
+                      : statusInfo?.emailProvider === 'resend'
+                        ? 'Resend is active for app notifications.'
+                        : statusInfo?.hasGmailConfiguration
+                          ? 'Gmail SMTP setup is incomplete. Configure both Gmail environment variables.'
+                          : statusInfo?.hasOutlookConfiguration
+                            ? 'Outlook SMTP setup is incomplete. Configure both Outlook environment variables.'
+                            : 'No email provider configured. Notifications are simulated in preview.'}
                 </p>
                 <div className="text-[11px] font-mono bg-[#1e1e1e] border border-[#444444] p-1.5 rounded text-gray-300 truncate">
                   {statusInfo?.emailProvider === 'gmail'
                     ? 'Gmail SMTP Active'
-                    : statusInfo?.emailProvider === 'resend'
-                      ? 'Resend Live Active'
-                      : 'Simulation Mode'}
+                    : statusInfo?.emailProvider === 'outlook'
+                      ? 'Outlook SMTP Active'
+                      : statusInfo?.emailProvider === 'resend'
+                        ? 'Resend Live Active'
+                        : 'Simulation Mode'}
                 </div>
               </div>
 
