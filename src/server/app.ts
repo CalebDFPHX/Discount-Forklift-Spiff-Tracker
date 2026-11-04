@@ -1010,7 +1010,15 @@ app.post('/api/admin/submissions/:id/reject', requireAdmin, async (req, res) => 
 app.post('/api/admin/submissions/:id/pay', requireAdmin, async (req, res) => {
   try {
     const adminUser = (req as any).adminUser;
-    const updated = await Repository.markPaidSubmission(req.params.id, adminUser);
+    const isGeneralManager = (req as any).adminRole === GENERAL_MANAGER_ROLE;
+    const branchIds = isGeneralManager ? (req as any).generalManagerBranchIds : undefined;
+    if (
+      isGeneralManager &&
+      !(await Repository.getSubmissionById(req.params.id, branchIds))
+    ) {
+      return res.status(404).json({ error: 'Submission not found.' });
+    }
+    const updated = await Repository.markPaidSubmission(req.params.id, adminUser, branchIds);
     res.json({ success: true, submission: updated });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

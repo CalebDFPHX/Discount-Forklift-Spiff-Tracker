@@ -30,6 +30,7 @@ interface AdminRequestDetailModalProps {
   onReopenDenied: (id: string, explanation: string) => Promise<void>;
   onViewPhoto: (submission: SpiffSubmission, attachment?: Attachment) => void;
   canRecoverPaidReceipt: boolean;
+  canMarkPaid?: boolean;
   readOnly?: boolean;
   onRecoverPaidReceipt: (id: string) => Promise<PaidReceiptNotificationResult[]>;
   onRetryPaidReceipt: (jobId: string) => Promise<PaidReceiptNotificationResult>;
@@ -47,6 +48,7 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
   onReopenDenied,
   onViewPhoto,
   canRecoverPaidReceipt,
+  canMarkPaid = false,
   readOnly = false,
   onRecoverPaidReceipt,
   onRetryPaidReceipt,
@@ -688,7 +690,7 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
               </>
             )}
 
-            {!readOnly && submission.status === 'Approved' && (
+            {(!readOnly || canMarkPaid) && submission.status === 'Approved' && (
               <button
                 type="button"
                 onClick={handleMarkPaid}

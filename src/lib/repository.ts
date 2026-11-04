@@ -2876,11 +2876,30 @@ export const Repository = {
   // ----------------------------------------------------
   // 8. Other Admin Actions
   // ----------------------------------------------------
-  async markPaidSubmission(id: string, adminUser: string): Promise<SpiffSubmission> {
-    const sub = await this.getSubmissionById(id);
+  async markPaidSubmission(
+    id: string,
+    adminUser: string,
+    authorizedBranchIds?: string[]
+  ): Promise<SpiffSubmission> {
+    if (authorizedBranchIds && authorizedBranchIds.length === 0) {
+      throw new Error('Submission not found.');
+    }
+
+    const sub = await this.getSubmissionById(id, authorizedBranchIds);
     if (!sub) throw new Error('Submission not found.');
     if (sub.status !== 'Approved') {
       throw new Error(`Only Approved requests can be marked as Paid (current status: ${sub.status}).`);
+    }
+
+    const memSub = memoryStore.submissions.find((submission) => submission.id === id);
+    if (!(this.isLiveDatabaseConnected() && db)) {
+      if (!memSub) throw new Error('Submission not found.');
+      if (authorizedBranchIds && (!memSub.branchId || !authorizedBranchIds.includes(memSub.branchId))) {
+        throw new Error('Submission not found.');
+      }
+      if (memSub.status !== 'Approved') {
+        throw new Error(`Only Approved requests can be marked as Paid (current status: ${memSub.status}).`);
+      }
     }
 
     const now = new Date().toISOString();
@@ -2900,6 +2919,13 @@ export const Repository = {
 
     if (this.isLiveDatabaseConnected() && db) {
       await db.transaction(async (tx) => {
+        const conditions = [
+          eq(schema.spiffSubmissions.id, id),
+          eq(schema.spiffSubmissions.status, 'Approved'),
+        ];
+        if (authorizedBranchIds) {
+          conditions.push(inArray(schema.spiffSubmissions.branchId, authorizedBranchIds));
+        }
         const [updated] = await tx
           .update(schema.spiffSubmissions)
           .set({
@@ -2907,7 +2933,7 @@ export const Repository = {
             paidAt: new Date(now),
             paidBy: adminUser,
           })
-          .where(and(eq(schema.spiffSubmissions.id, id), eq(schema.spiffSubmissions.status, 'Approved')))
+          .where(and(...conditions))
           .returning();
 
         if (!updated) {
@@ -2927,7 +2953,6 @@ export const Repository = {
       });
     }
 
-    const memSub = memoryStore.submissions.find((s) => s.id === id);
     if (memSub) {
       memSub.status = 'Paid';
       memSub.paidAt = now;

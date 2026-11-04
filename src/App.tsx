@@ -587,6 +587,7 @@ export default function App() {
           onReopenDenied={handleReopenDeniedRequest}
           onViewPhoto={handleOpenPhoto}
           canRecoverPaidReceipt={adminRole === 'Administrator'}
+          canMarkPaid={adminRole === GENERAL_MANAGER_ROLE}
           readOnly={adminRole === GENERAL_MANAGER_ROLE}
           onRecoverPaidReceipt={handleRecoverPaidReceipt}
           onRetryPaidReceipt={handleRetryPaidReceipt}

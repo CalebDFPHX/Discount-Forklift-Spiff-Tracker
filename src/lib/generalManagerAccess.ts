@@ -66,6 +66,12 @@ export function resolveGeneralManagerBranchIds(
 
 export function canGeneralManagerAccessAdminRoute(method: string, path: string): boolean {
   if (method.toUpperCase() === 'POST' && path === '/api/admin/change-password') return true;
+  if (
+    method.toUpperCase() === 'POST' &&
+    /^\/api\/admin\/submissions\/[^/]+\/pay$/.test(path)
+  ) {
+    return true;
+  }
   if (method.toUpperCase() !== 'GET') return false;
 
   return (
