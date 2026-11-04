@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header.js';
-import { RepSubmissionExperience } from './components/RepSubmissionExperience.js';
+import { RepSubmissionForm } from './components/RepSubmissionForm.js';
+import { SubmissionSuccessModal } from './components/SubmissionSuccessModal.js';
 import { AdminLoginModal } from './components/AdminLoginModal.js';
 import { PasswordChangeModal } from './components/PasswordChangeModal.js';
 import { AdminLedger } from './components/AdminLedger.js';
@@ -32,6 +33,9 @@ export default function App() {
   const [adminRole, setAdminRole] = useState<string>('Administrator');
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [mustChangePassword, setMustChangePassword] = useState(false);
+
+  // Success submission modal
+  const [lastSubmitted, setLastSubmitted] = useState<SpiffSubmission | null>(null);
 
   // Admin Ledger modal states
   const [activeDetailSubmission, setActiveDetailSubmission] = useState<SpiffSubmission | null>(null);
@@ -144,6 +148,10 @@ export default function App() {
   useEffect(() => {
     refreshConfig();
   }, [adminUser, adminRole]);
+
+  const handleSubmissionSuccess = (submission: SpiffSubmission) => {
+    setLastSubmitted(submission);
+  };
 
   const handleAdminLogin = (
     email: string,
@@ -344,9 +352,9 @@ export default function App() {
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {currentView === 'rep' ? (
           <div>
-            <RepSubmissionExperience
+            <RepSubmissionForm
+              onSubmissionSuccess={handleSubmissionSuccess}
               onAdminLoginClick={() => setIsAdminLoginOpen(true)}
-              onRefreshConfig={refreshConfig}
             />
           </div>
         ) : (
@@ -520,6 +528,17 @@ export default function App() {
           allContacts={contacts}
           onConfirm={handleConfirmDecision}
           onRetryPaidReceipt={handleRetryPaidReceipt}
+        />
+      )}
+
+      {/* Submission Success Confirmation Modal */}
+      {lastSubmitted && (
+        <SubmissionSuccessModal
+          submission={lastSubmitted}
+          onReset={() => {
+            setLastSubmitted(null);
+            refreshConfig();
+          }}
         />
       )}
 
