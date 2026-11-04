@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { formatPhoenixDateTime } from '../lib/timezone';
 import { adminFetch } from '../lib/api';
+import type { Branch, NotificationContact } from '../lib/repository';
+import { getInviteableNotificationContacts } from '../lib/generalManagerAccess';
 
 export interface AdminUserRecord {
   id: string;
@@ -34,24 +36,28 @@ export interface AdminUserRecord {
 
 interface AdminUsersManagerProps {
   adminUser: string;
+  adminRole: string;
   embedded?: boolean;
 }
 
-export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser, embedded = false }) => {
+export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({
+  adminUser,
+  adminRole,
+  embedded = false,
+}) => {
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
+  const [contacts, setContacts] = useState<NotificationContact[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   // Add / Invite Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [addMode, setAddMode] = useState<'invite' | 'direct'>('invite');
+  const [inviteTarget, setInviteTarget] = useState<'administrator' | 'contact'>('administrator');
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
-  const [newRole, setNewRole] = useState<'Administrator' | 'Approving Manager' | 'General Manager'>('Approving Manager');
-  const [newPassword, setNewPassword] = useState('');
-  const [newConfirmPassword, setNewConfirmPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [selectedContactId, setSelectedContactId] = useState('');
   const [isCreating, setIsCreating] = useState(false);
 
   // Generated Link Modal (for invite or reset link)
@@ -75,13 +81,25 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
     setIsLoading(true);
     setActionError(null);
     try {
-      const res = await adminFetch('/api/admin/users');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load administrator accounts.');
-      setUsers(data.users || []);
+      const [usersRes, contactsRes, branchesRes] = await Promise.all([
+        adminFetch('/api/admin/users'),
+        adminFetch('/api/admin/contacts'),
+        adminFetch('/api/admin/branches'),
+      ]);
+      const [usersData, contactsData, branchesData] = await Promise.all([
+        usersRes.json(),
+        contactsRes.json(),
+        branchesRes.json(),
+      ]);
+      if (!usersRes.ok) throw new Error(usersData.error || 'Failed to load login accounts.');
+      if (!contactsRes.ok) throw new Error(contactsData.error || 'Failed to load Notification Contacts.');
+      if (!branchesRes.ok) throw new Error(branchesData.error || 'Failed to load branches.');
+      setUsers(usersData.users || []);
+      setContacts(contactsData.contacts || []);
+      setBranches(branchesData.branches || []);
     } catch (err: any) {
-      console.error('Error fetching admin users:', err);
-      setActionError(err.message || 'Error loading administrators.');
+      console.error('Error fetching login contacts:', err);
+      setActionError(err.message || 'Error loading login accounts and contacts.');
     } finally {
       setIsLoading(false);
     }
@@ -97,84 +115,64 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
   };
 
   // Create User or Invite Link
+  const inviteableContacts = getInviteableNotificationContacts(
+    contacts,
+    branches,
+    users.map((user) => user.email)
+  );
+
   const handleCreateOrInviteUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setActionError(null);
 
-    const emailClean = newEmail.trim().toLowerCase();
-    if (!emailClean) {
-      setActionError('Email address is required.');
+    const selectedContact =
+      inviteTarget === 'contact'
+        ? inviteableContacts.find((contact) => contact.id === selectedContactId)
+        : undefined;
+    if (inviteTarget === 'contact' && !selectedContact) {
+      setActionError('Select an active, eligible Notification Contact without an existing login.');
       return;
     }
 
-    if (addMode === 'direct') {
-      if (newPassword.length < 8) {
-        setActionError('Password must be at least 8 characters long.');
-        return;
-      }
-      if (!/[a-zA-Z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
-        setActionError('Password must contain both letters and numbers.');
-        return;
-      }
-      if (newPassword !== newConfirmPassword) {
-        setActionError('Passwords do not match. Please verify.');
-        return;
-      }
+    const emailClean = (selectedContact?.email || newEmail).trim().toLowerCase();
+    if (!emailClean) {
+      setActionError('Administrator email address is required.');
+      return;
     }
 
     setIsCreating(true);
     try {
-      if (addMode === 'invite') {
-        const res = await adminFetch('/api/admin/invite', {
+      const isContactInvite = inviteTarget === 'contact';
+      const res = await adminFetch(
+        isContactInvite ? '/api/admin/invite-contact' : '/api/admin/invite',
+        {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: newName.trim() || undefined,
-            email: emailClean,
-            role: newRole,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to generate invitation link.');
+          body: JSON.stringify(
+            isContactInvite
+              ? { contactId: selectedContact!.id }
+              : { name: newName.trim() || undefined, email: emailClean, role: 'Administrator' }
+          ),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to generate invitation link.');
 
-        setIsAddModalOpen(false);
-        setNewName('');
-        setNewEmail('');
-        setNewPassword('');
-        setNewConfirmPassword('');
-        loadUsers();
+      setIsAddModalOpen(false);
+      setNewName('');
+      setNewEmail('');
+      setSelectedContactId('');
+      await loadUsers();
 
-        setGeneratedLinkModal({
-          isOpen: true,
-          title: 'Single-Use Invite Link Generated',
-          description: `Deliver this single-use setup link to ${emailClean}. It expires in 24 hours:`,
-          url: data.inviteUrl,
-          expiresAt: data.expiresAt,
-        });
-      } else {
-        const res = await adminFetch('/api/admin/users', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: newName.trim() || undefined,
-            email: emailClean,
-            role: newRole,
-            password: newPassword,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to create user account.');
-
-        setIsAddModalOpen(false);
-        setNewName('');
-        setNewEmail('');
-        setNewPassword('');
-        setNewConfirmPassword('');
-        showSuccessBanner(`Created ${newRole} account for ${emailClean}.`);
-        loadUsers();
-      }
+      setGeneratedLinkModal({
+        isOpen: true,
+        title: 'Single-Use Invite Link Generated',
+        description: `Deliver this single-use setup link to ${emailClean}. It expires in 24 hours:`,
+        url: data.inviteUrl,
+        expiresAt: data.expiresAt,
+      });
     } catch (err: any) {
-      setActionError(err.message || 'Error processing administrator account.');
+      setActionError(err.message || 'Error generating the single-use invitation.');
     } finally {
       setIsCreating(false);
     }
@@ -341,12 +339,14 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
           <button
             onClick={() => {
               setIsAddModalOpen(true);
+              setInviteTarget(adminRole === 'Administrator' ? 'administrator' : 'contact');
+              setSelectedContactId('');
               setActionError(null);
             }}
             className="inline-flex items-center space-x-1.5 px-4 py-2 bg-[#A559BD] hover:bg-[#934da9] text-white text-xs font-bold rounded-lg shadow-sm transition-colors"
           >
             <UserPlus className="w-4 h-4" />
-            <span>Add / Invite Admin</span>
+            <span>Invite Login</span>
           </button>
         </div>
       </div>
@@ -423,7 +423,7 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
                         )}
                         <span>{u.role || 'Administrator'}</span>
                       </span>
-                      {!isCurrent && (
+                      {!isCurrent && adminRole === 'Administrator' && (
                         <select
                           value={u.role || 'Administrator'}
                           onChange={(e) => handleUpdateRole(u, e.target.value)}
@@ -594,7 +594,7 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
             <div className="flex items-center justify-between pb-3 border-b border-[#383838]">
               <div className="flex items-center space-x-2 text-white">
                 <UserPlus className="w-5 h-5 text-[#95EA00]" />
-                <h3 className="font-bold text-base">Add Administrator Account</h3>
+                <h3 className="font-bold text-base">Invite Login</h3>
               </div>
               <button
                 onClick={() => setIsAddModalOpen(false)}
@@ -605,38 +605,38 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
             </div>
 
             <div className="flex space-x-2 my-3">
+              {adminRole === 'Administrator' && (
               <button
                 type="button"
-                onClick={() => setAddMode('invite')}
+                onClick={() => setInviteTarget('administrator')}
                 className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition-colors ${
-                  addMode === 'invite'
+                  inviteTarget === 'administrator'
                     ? 'bg-[#A559BD]/20 border-[#A559BD] text-white'
                     : 'bg-[#1e1e1e] border-[#444444] text-gray-400'
                 }`}
               >
-                Single-Use Invite Link
+                New Administrator
               </button>
+              )}
               <button
                 type="button"
-                onClick={() => {
-                  if (newRole !== 'General Manager') setAddMode('direct');
-                }}
-                disabled={newRole === 'General Manager'}
-                title={newRole === 'General Manager' ? 'General Managers must establish their own password using a single-use invite link.' : undefined}
+                onClick={() => setInviteTarget('contact')}
                 className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition-colors ${
-                  addMode === 'direct' && newRole !== 'General Manager'
+                  inviteTarget === 'contact'
                     ? 'bg-[#95EA00]/15 border-[#95EA00] text-white'
                     : 'bg-[#1e1e1e] border-[#444444] text-gray-400'
                 }`}
               >
-                Set Password Directly
+                Existing Contact
               </button>
             </div>
 
             <form onSubmit={handleCreateOrInviteUser} className="space-y-3.5">
+              {inviteTarget === 'administrator' ? (
+                <>
               <div>
                 <label className="block text-xs font-semibold text-gray-200 mb-1">
-                  Full Name / Designation
+                  Administrator Name
                 </label>
                 <input
                   type="text"
@@ -660,108 +660,37 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
                   required
                 />
               </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-200 mb-1.5">
-                  Account Role <span className="text-rose-400">*</span>
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewRole('Approving Manager')}
-                    className={`p-2.5 rounded-lg border text-left transition-all ${
-                      newRole === 'Approving Manager'
-                        ? 'bg-[#A559BD]/20 border-[#A559BD] text-white shadow-xs'
-                        : 'bg-[#1e1e1e] border-[#444444] text-gray-400 hover:text-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-1.5 font-bold text-xs text-purple-200 mb-0.5">
-                      <Shield className="w-3.5 h-3.5 text-[#A559BD]" />
-                      <span>Approving Manager</span>
-                    </div>
-                    <p className="text-[10px] text-gray-400 leading-tight">
-                      Ledger, review & decision rights
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewRole('Administrator')}
-                    className={`p-2.5 rounded-lg border text-left transition-all ${
-                      newRole === 'Administrator'
-                        ? 'bg-[#95EA00]/15 border-[#95EA00] text-white shadow-xs'
-                        : 'bg-[#1e1e1e] border-[#444444] text-gray-400 hover:text-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-1.5 font-bold text-xs text-[#95EA00] mb-0.5">
-                      <ShieldCheck className="w-3.5 h-3.5 text-[#95EA00]" />
-                      <span>Administrator</span>
-                    </div>
-                    <p className="text-[10px] text-gray-400 leading-tight">
-                      Full system & user management
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewRole('General Manager');
-                      setAddMode('invite');
-                    }}
-                    className={`p-2.5 rounded-lg border text-left transition-all ${
-                      newRole === 'General Manager'
-                        ? 'bg-sky-500/15 border-sky-400 text-white shadow-xs'
-                        : 'bg-[#1e1e1e] border-[#444444] text-gray-400 hover:text-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-1.5 font-bold text-xs text-sky-200 mb-0.5">
-                      <Shield className="w-3.5 h-3.5 text-sky-300" />
-                      <span>General Manager</span>
-                    </div>
-                    <p className="text-[10px] text-gray-400 leading-tight">
-                      Read-only assigned-branch ledger
-                    </p>
-                  </button>
-                </div>
-              </div>
-
-              {addMode === 'direct' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-200 mb-1">
-                      Login Password (min. 8 characters, letters & numbers) <span className="text-rose-400">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showNewPassword ? 'text' : 'password'}
-                        placeholder="Enter secure password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full bg-[#1e1e1e] border border-[#444444] rounded px-3 py-1.5 pr-9 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
-                        required
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowNewPassword(!showNewPassword)}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white p-1"
-                      >
-                        {showNewPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-200 mb-1">
-                      Confirm Password <span className="text-rose-400">*</span>
-                    </label>
-                    <input
-                      type={showNewPassword ? 'text' : 'password'}
-                      placeholder="Repeat password"
-                      value={newConfirmPassword}
-                      onChange={(e) => setNewConfirmPassword(e.target.value)}
-                      className="w-full bg-[#1e1e1e] border border-[#444444] rounded px-3 py-1.5 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
-                      required
-                    />
-                  </div>
+                <p className="text-[11px] text-gray-400">
+                  A single-use setup link will let the administrator create their own password.
+                </p>
                 </>
+              ) : (
+                <div>
+                <label className="block text-xs font-semibold text-gray-200 mb-1.5">
+                  Active Notification Contact <span className="text-rose-400">*</span>
+                </label>
+                <select
+                  value={selectedContactId}
+                  onChange={(e) => setSelectedContactId(e.target.value)}
+                  className="w-full bg-[#1e1e1e] border border-[#444444] rounded px-3 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
+                  required
+                >
+                  <option value="">Select contact</option>
+                  {inviteableContacts.map((contact) => (
+                    <option key={contact.id} value={contact.id}>
+                      {contact.name} — {contact.role} — {contact.email}
+                    </option>
+                  ))}
+                </select>
+                {inviteableContacts.length === 0 && (
+                  <p className="mt-2 text-[11px] text-gray-400">
+                    No active, eligible contacts without an existing login are available.
+                  </p>
+                )}
+                <p className="mt-2 text-[11px] text-gray-400">
+                  The contact’s current role and branch assignment are retained. The contact will set their own password using a single-use link.
+                </p>
+                </div>
               )}
 
               <div className="flex items-center justify-end space-x-2 pt-4 border-t border-[#444444]">
@@ -774,14 +703,13 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
                 </button>
                 <button
                   type="submit"
-                  disabled={isCreating}
+                  disabled={
+                    isCreating ||
+                    (inviteTarget === 'contact' && !inviteableContacts.some((contact) => contact.id === selectedContactId))
+                  }
                   className="px-4 py-1.5 text-xs font-bold text-white bg-[#A559BD] hover:bg-[#934da9] rounded shadow-sm transition-colors disabled:opacity-50"
                 >
-                  {isCreating
-                    ? 'Processing...'
-                    : addMode === 'invite'
-                    ? 'Generate Single-Use Invite Link'
-                    : 'Create Administrator'}
+                  {isCreating ? 'Processing...' : 'Generate Single-Use Invite Link'}
                 </button>
               </div>
             </form>

@@ -17,7 +17,10 @@ import {
   BLOCKED_NOTIFICATION_RECIPIENT_EMAILS,
   isBlockedNotificationRecipient,
 } from './recipientPolicy.js';
-import { resolveGeneralManagerBranchIds } from './generalManagerAccess.js';
+import {
+  isEligibleContactLoginRole,
+  resolveGeneralManagerBranchIds,
+} from './generalManagerAccess.js';
 import {
   EmailTemplate,
   EmailTemplateVersion,
@@ -4683,7 +4686,8 @@ export const Repository = {
           passwordChangedAt: newUser.passwordChangedAt ? new Date(newUser.passwordChangedAt) : null,
         });
       } catch (err) {
-        console.warn('Neon insert error for admin user:', err);
+        console.error('Neon insert error for admin user:', err);
+        throw err;
       }
     }
 
@@ -4900,32 +4904,53 @@ return true;
   },
 
   async updateAdminRole(id: string, role: string): Promise<boolean> {
-    const validRoles = ['Administrator', 'Approving Manager'];
+    const validRoles = ['Administrator', 'Approving Manager', 'General Manager'];
     if (!validRoles.includes(role)) {
       throw new Error(`Invalid role. Must be one of: ${validRoles.join(', ')}`);
     }
-    const now = new Date().toISOString();
-    if (this.isLiveDatabaseConnected() && db) {
-      try {
-        await db
-          .update(schema.adminUsers)
-          .set({
-            role,
-            updatedAt: new Date(),
-          })
-          .where(eq(schema.adminUsers.id, id));
-      } catch (err) {
-        console.warn('Neon update error for admin role:', err);
+    const user = await this.getAdminUserById(id);
+    if (!user) throw new Error('Administrator user not found.');
+
+    const linkedContacts = (await this.getAllContacts()).filter(
+      (contact) => contact.email.trim().toLowerCase() === user.email.trim().toLowerCase()
+    );
+    if (role === 'Administrator') {
+      if (linkedContacts.length > 0) {
+        throw new Error('A Notification Contact account must retain its contact role.');
+      }
+    } else {
+      if (
+        !isEligibleContactLoginRole(role) ||
+        linkedContacts.length !== 1 ||
+        !linkedContacts[0].isActive ||
+        linkedContacts[0].role !== role
+      ) {
+        throw new Error('Manager login roles must match one active, eligible Notification Contact.');
+      }
+      if (role === 'General Manager' && (await this.getGeneralManagerBranchIds(user.email)).length === 0) {
+        throw new Error('A General Manager account requires an active assigned branch.');
       }
     }
 
-    const user = memoryStore.adminUsers.find((u) => u.id === id);
-    if (user) {
-      user.role = role;
-      user.updatedAt = now;
-      return true;
+    const now = new Date().toISOString();
+    if (this.isLiveDatabaseConnected() && db) {
+      const updated = await db
+        .update(schema.adminUsers)
+        .set({
+          role,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.adminUsers.id, id))
+        .returning({ id: schema.adminUsers.id });
+      if (updated.length === 0) throw new Error('Administrator user not found.');
     }
-    throw new Error('Administrator user not found.');
+
+    const memoryUser = memoryStore.adminUsers.find((candidate) => candidate.id === id);
+    if (memoryUser) {
+      memoryUser.role = role;
+      memoryUser.updatedAt = now;
+    }
+    return true;
   },
 
 

@@ -46,6 +46,7 @@ import { getEmailTemplateDisplayName } from '../lib/emailTemplates.js';
 import {
   canGeneralManagerAccessAdminRoute,
   GENERAL_MANAGER_ROLE,
+  isEligibleContactLoginRole,
 } from '../lib/generalManagerAccess.js';
 import {
   buildWeeklySpiffReportContent,
@@ -1645,14 +1646,10 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
   }
 });
 
-app.post('/api/admin/users', requireAdmin, async (req, res) => {
-  try {
-    const { email, name, role, password } = req.body;
-    const user = await Repository.createAdminUser({ email, name, role, password });
-    res.json({ success: true, user });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
+app.post('/api/admin/users', requireAdmin, (_req, res) => {
+  res.status(403).json({
+    error: 'Use the single-use invitation flow to create Administrator or Notification Contact logins.',
+  });
 });
 
 app.patch('/api/admin/users/:id/password', requireAdmin, async (req, res) => {
@@ -1675,7 +1672,7 @@ app.patch('/api/admin/users/:id/status', requireAdmin, async (req, res) => {
   }
 });
 
-app.patch('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
+app.patch('/api/admin/users/:id/role', requireAdmin, requireAdministrator, async (req, res) => {
   try {
     const { role } = req.body;
     await Repository.updateAdminRole(req.params.id, role);
@@ -1695,30 +1692,39 @@ app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
   }
 });
 
-// Invite a new administrator
-app.post('/api/admin/invite', requireAdmin, async (req, res) => {
+// Invite a new Administrator account that is not already linked to a contact or login.
+app.post('/api/admin/invite', requireAdmin, requireAdministrator, async (req, res) => {
   try {
     const { email, name, role } = req.body;
-    if (!email) {
+    if (typeof email !== 'string' || !email.trim()) {
       return res.status(400).json({ error: 'Administrator email is required.' });
     }
-    const cleanEmail = email.trim().toLowerCase();
-    const existing = await Repository.getAdminUserByEmail(cleanEmail);
-    let targetAdminId: string;
-
-    if (existing) {
-      targetAdminId = existing.id;
-    } else {
-      const newUser = await Repository.createAdminUser({
-        email: cleanEmail,
-        name: name ? name.trim() : undefined,
-        role: role || 'Approving Manager',
-      });
-      targetAdminId = newUser.id;
+    if (role !== undefined && role !== 'Administrator') {
+      return res.status(400).json({ error: 'This invitation flow only creates Administrator accounts.' });
     }
 
+    const cleanEmail = email.trim().toLowerCase();
+    const contact = (await Repository.getAllContacts()).find(
+      (candidate) => candidate.email.trim().toLowerCase() === cleanEmail
+    );
+    if (contact) {
+      return res.status(409).json({
+        error: `This email belongs to a Notification Contact (${contact.role}). Invite the contact without changing their role.`,
+      });
+    }
+
+    const existing = await Repository.getAdminUserByEmail(cleanEmail);
+    if (existing) {
+      return res.status(409).json({ error: 'An account already exists for this email address.' });
+    }
+
+    const newUser = await Repository.createAdminUser({
+      email: cleanEmail,
+      name: typeof name === 'string' ? name.trim() : undefined,
+      role: 'Administrator',
+    });
     const { rawToken, expiresAt } = await createAdminAuthToken({
-      adminId: targetAdminId,
+      adminId: newUser.id,
       tokenType: 'invite',
       createdBy: (req as any).adminUser,
     });
@@ -1728,7 +1734,77 @@ app.post('/api/admin/invite', requireAdmin, async (req, res) => {
       success: true,
       inviteUrl,
       expiresAt,
-      token: rawToken,
+    });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/invite-contact', requireAdmin, async (req, res) => {
+  try {
+    const contactId = typeof req.body?.contactId === 'string' ? req.body.contactId.trim() : '';
+    if (!contactId) {
+      return res.status(400).json({ error: 'Select a Notification Contact to invite.' });
+    }
+    if (req.body?.role !== undefined || req.body?.email !== undefined) {
+      return res.status(400).json({
+        error: 'Contact invitations accept only a contact ID; role and email are read from the contact record.',
+      });
+    }
+
+    const contacts = await Repository.getAllContacts();
+    const contact = contacts.find((candidate) => candidate.id === contactId);
+    if (!contact || !contact.isActive) {
+      return res.status(404).json({ error: 'Active Notification Contact not found.' });
+    }
+    if (!isEligibleContactLoginRole(contact.role)) {
+      return res.status(403).json({ error: 'This Notification Contact role is not eligible for login access.' });
+    }
+
+    const sameEmailContacts = contacts.filter(
+      (candidate) =>
+        candidate.email.trim().toLowerCase() === contact.email.trim().toLowerCase() &&
+        candidate.isActive
+    );
+    if (sameEmailContacts.some((candidate) => candidate.role !== contact.role)) {
+      return res.status(409).json({
+        error: 'This email has active Notification Contacts with different roles. Resolve the contact records before inviting.',
+      });
+    }
+    if (
+      contact.role === GENERAL_MANAGER_ROLE &&
+      (await Repository.getGeneralManagerBranchIds(contact.email)).length === 0
+    ) {
+      return res.status(400).json({
+        error: 'Assign this General Manager contact to an active branch before inviting them.',
+      });
+    }
+
+    const existing = await Repository.getAdminUserByEmail(contact.email);
+    if (existing) {
+      return res.status(409).json({
+        error: existing.role === contact.role
+          ? 'This contact already has a login account. Use the existing account’s password setup or reset link.'
+          : `This contact already has an account with the ${existing.role} role. Resolve the account role before inviting.`,
+      });
+    }
+
+    const user = await Repository.createAdminUser({
+      email: contact.email,
+      name: contact.name,
+      role: contact.role,
+    });
+    const { rawToken, expiresAt } = await createAdminAuthToken({
+      adminId: user.id,
+      tokenType: 'invite',
+      createdBy: (req as any).adminUser,
+    });
+
+    res.json({
+      success: true,
+      contact: { id: contact.id, name: contact.name, email: contact.email, role: contact.role },
+      inviteUrl: `${CANONICAL_APP_URL}/?setup_token=${rawToken}`,
+      expiresAt,
     });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

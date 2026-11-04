@@ -72,6 +72,7 @@ export async function createAdminAuthToken(params: {
       });
     } catch (err) {
       console.error('[AuthTokens] Failed to save token in Neon:', err);
+      if (!isMemoryModeAllowed()) throw err;
     }
   }
 

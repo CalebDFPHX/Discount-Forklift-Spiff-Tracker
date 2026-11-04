@@ -487,7 +487,7 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser, adminRo
 
         {openSections.userLogins && (
           <div className="p-5 sm:p-6 border-t border-[#383838]">
-            <AdminUsersManager adminUser={adminUser} embedded />
+            <AdminUsersManager adminUser={adminUser} adminRole={adminRole} embedded />
           </div>
         )}
       </div>

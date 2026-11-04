@@ -1,6 +1,36 @@
 import type { Branch, NotificationContact } from './repository.js';
 
 export const GENERAL_MANAGER_ROLE = 'General Manager';
+export const CONTACT_LOGIN_ROLES = ['Approving Manager', GENERAL_MANAGER_ROLE] as const;
+
+export function isEligibleContactLoginRole(role: string): boolean {
+  return CONTACT_LOGIN_ROLES.some((candidate) => candidate === role);
+}
+
+export function getInviteableNotificationContacts(
+  contacts: NotificationContact[],
+  branches: Branch[],
+  existingAccountEmails: string[]
+): NotificationContact[] {
+  const accountEmails = new Set(existingAccountEmails.map((email) => email.trim().toLowerCase()));
+  const activeBranchNames = new Set(
+    branches.filter((branch) => branch.isActive).map((branch) => branch.name.trim())
+  );
+  const offeredEmails = new Set<string>();
+
+  return contacts.filter((contact) => {
+    const email = contact.email.trim().toLowerCase();
+    const eligible =
+      contact.isActive &&
+      isEligibleContactLoginRole(contact.role) &&
+      !accountEmails.has(email) &&
+      (contact.role !== GENERAL_MANAGER_ROLE ||
+        Boolean(contact.branch && activeBranchNames.has(contact.branch.trim())));
+    if (!eligible || offeredEmails.has(email)) return false;
+    offeredEmails.add(email);
+    return true;
+  });
+}
 
 export function resolveGeneralManagerBranchIds(
   email: string,

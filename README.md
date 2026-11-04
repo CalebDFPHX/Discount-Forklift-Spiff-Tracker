@@ -94,12 +94,11 @@ When connecting a production Neon database to Vercel or cloud hosting:
 ---
 
 ### 4. Administrator Invitations & Password Reset
-1. **Inviting Additional Administrators**:
-   - Authorized administrators log in and navigate to the **User Management** tab.
-   - Click **Add / Invite Admin**, enter their email, name, and role (`Administrator`, `Approving Manager`, or `General Manager`).
-   - Choose **Single-Use Invite Link** to generate a cryptographic, single-use token valid for 24 hours.
-   - Deliver the setup link to the manager. Once they choose a password, the token is consumed atomically and cannot be reused.
-   - Before inviting a General Manager, create or activate their **General Manager** notification contact and assign its **Branch** to an active branch. The account email must match that contact. General Managers see only the ledger and submissions for those explicitly assigned branches; rep-to-GM assignments do not grant branch access. New General Manager accounts must use the single-use invite flow to set their own password.
+1. **Inviting Administrators and Notification Contacts**:
+   - Authorized users open **Notifications & Infrastructure** and go to **Administrator & Approving Manager Logins**.
+   - An Administrator can invite a new Administrator by email. For existing Notification Contacts, select an active, eligible **Approving Manager** or **General Manager** contact; the account role and email are taken from the contact record and cannot be changed in the invitation form.
+   - Each invitation generates a cryptographic, single-use setup link valid for 24 hours. Deliver the link to the invitee so they can create their own password; the token is consumed atomically and cannot be reused.
+   - A General Manager contact must be assigned directly to an active branch before invitation. General Managers see only the ledger and submissions for those explicitly assigned branches; rep-to-GM assignments do not grant branch access. They remain read-only in the app, while the secure **Mark as Paid** action in the paid-status email remains available without signing in.
 2. **Self-Service Password Reset**:
    - On the login screen, click **Forgot password?** and submit your administrator email.
    - To prevent account enumeration attacks, the system returns an identical confirmation message regardless of whether the email exists.
