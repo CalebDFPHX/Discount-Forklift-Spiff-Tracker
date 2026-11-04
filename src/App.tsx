@@ -270,7 +270,9 @@ export default function App() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    setActiveDetailSubmission(data.submission);
+    setActiveDetailSubmission((current) =>
+      current?.id === id ? data.submission : current
+    );
     setLedgerRefreshTrigger((prev) => prev + 1);
     refreshConfig();
   };
@@ -456,6 +458,7 @@ export default function App() {
                 onViewPhoto={handleOpenPhoto}
                 onApproveClick={(sub) => handleOpenDecision(sub, 'approve')}
                 onDenyClick={(sub) => handleOpenDecision(sub, 'deny')}
+                onMarkPaid={handleMarkPaidRequest}
                 reps={reps}
                 refreshTrigger={ledgerRefreshTrigger}
               />

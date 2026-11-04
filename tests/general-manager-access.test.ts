@@ -15,6 +15,7 @@ const { getAdminTabsForRole } = await import('../src/lib/generalManagerAccess.js
 const { default: app } = await import('../src/server/app.js');
 const { Header } = await import('../src/components/Header.js');
 const { AdminRequestDetailModal } = await import('../src/components/AdminRequestDetailModal.js');
+const { LedgerMarkPaidAction } = await import('../src/components/AdminLedger.js');
 
 Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
@@ -314,6 +315,33 @@ describe('General Manager access', () => {
       })
     );
     assert.doesNotMatch(pendingDetails, /Mark as Paid/);
+
+    const paidAction = renderToStaticMarkup(
+      React.createElement(LedgerMarkPaidAction, {
+        submission: fixtureSubmission(APPROVED_ID, OWN_BRANCH_ID, 'Approved'),
+        adminRole: 'General Manager',
+        onMarkPaid: async () => undefined,
+      })
+    );
+    assert.match(paidAction, /Mark as Paid/);
+
+    const pendingPaidAction = renderToStaticMarkup(
+      React.createElement(LedgerMarkPaidAction, {
+        submission: fixtureSubmission(PENDING_ID, OWN_BRANCH_ID, 'Pending'),
+        adminRole: 'General Manager',
+        onMarkPaid: async () => undefined,
+      })
+    );
+    assert.doesNotMatch(pendingPaidAction, /Mark as Paid/);
+
+    const administratorPaidAction = renderToStaticMarkup(
+      React.createElement(LedgerMarkPaidAction, {
+        submission: fixtureSubmission(APPROVED_ID, OWN_BRANCH_ID, 'Approved'),
+        adminRole: 'Administrator',
+        onMarkPaid: async () => undefined,
+      })
+    );
+    assert.doesNotMatch(administratorPaidAction, /Mark as Paid/);
   });
 
   it('scopes ledger filters and details to assigned branch IDs on the server', async () => {
@@ -379,6 +407,9 @@ describe('General Manager access', () => {
 
   it('allows an assigned GM to mark an approved submission paid once without duplicate notifications', async () => {
     const session = await login();
+    const approvedAtBeforePayment = memoryStore.submissions.find(
+      (submission) => submission.id === APPROVED_ID
+    )?.approvedAt;
     const headers = {
       cookie: session.cookie,
       'content-type': 'application/json',
@@ -402,6 +433,11 @@ describe('General Manager access', () => {
     const successBody = await responses[responses.findIndex((response) => response.status === 200)].json();
     assert.equal(successBody.submission.status, 'Paid');
     assert.equal(successBody.submission.paidBy, GM_EMAIL);
+    assert.equal(successBody.submission.approvedAt, approvedAtBeforePayment);
+    assert.equal(
+      memoryStore.submissions.find((submission) => submission.id === APPROVED_ID)?.approvedAt,
+      approvedAtBeforePayment
+    );
     assert.equal(
       memoryStore.auditEvents.filter(
         (event) => event.submissionId === APPROVED_ID && event.action === 'marked_paid'

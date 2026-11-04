@@ -32,9 +32,65 @@ interface AdminLedgerProps {
   onViewPhoto: (submission: SpiffSubmission) => void;
   onApproveClick: (submission: SpiffSubmission) => void;
   onDenyClick: (submission: SpiffSubmission) => void;
+  onMarkPaid: (submissionId: string) => Promise<void>;
   reps: SalesRep[];
   refreshTrigger?: number;
 }
+
+interface LedgerMarkPaidActionProps {
+  submission: SpiffSubmission;
+  adminRole: string;
+  onMarkPaid: (submissionId: string) => Promise<void>;
+}
+
+export const LedgerMarkPaidAction: React.FC<LedgerMarkPaidActionProps> = ({
+  submission,
+  adminRole,
+  onMarkPaid,
+}) => {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isPaid, setIsPaid] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  if (adminRole !== 'General Manager' || submission.status !== 'Approved' || isPaid) {
+    return null;
+  }
+
+  const handleMarkPaid = async () => {
+    if (!window.confirm('Mark this approved spiff as paid? This action cannot be undone.')) return;
+
+    setActionError(null);
+    setIsProcessing(true);
+    try {
+      await onMarkPaid(submission.id);
+      setIsPaid(true);
+    } catch (error: unknown) {
+      setActionError(error instanceof Error ? error.message : 'Failed to mark as paid.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={handleMarkPaid}
+        disabled={isProcessing}
+        className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-bold text-white bg-[#A559BD] hover:bg-[#934da9] rounded shadow-sm transition-colors disabled:opacity-60"
+        title="Mark approved spiff as paid"
+      >
+        {isProcessing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <DollarSign className="w-3.5 h-3.5" />}
+        <span>{isProcessing ? 'Marking Paid...' : 'Mark as Paid'}</span>
+      </button>
+      {actionError && (
+        <span className="text-[10px] text-rose-300" role="alert">
+          {actionError}
+        </span>
+      )}
+    </>
+  );
+};
 
 export const AdminLedger: React.FC<AdminLedgerProps> = ({
   adminUser,
@@ -43,6 +99,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
   onViewPhoto,
   onApproveClick,
   onDenyClick,
+  onMarkPaid,
   reps,
   refreshTrigger,
 }) => {
@@ -606,6 +663,21 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
                               title="View full request details"
                             >
                               <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : sub.status === 'Approved' && isGeneralManager ? (
+                          <>
+                            <LedgerMarkPaidAction
+                              submission={sub}
+                              adminRole={adminRole}
+                              onMarkPaid={onMarkPaid}
+                            />
+                            <button
+                              onClick={() => onOpenDetail(sub)}
+                              className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold text-gray-200 bg-[#1e1e1e] hover:bg-[#383838] border border-[#444444] rounded transition-colors"
+                            >
+                              <span>Review</span>
+                              <ChevronRight className="w-3 h-3" />
                             </button>
                           </>
                         ) : (
