@@ -25,6 +25,7 @@ import {
 import { adminFetch, setAdminSession, clearAdminSession, getAdminSession } from './lib/api.js';
 import { getSubmissionPhotos } from './lib/photoAttachments.js';
 import { FileText, Award, Users, Settings as SettingsIcon, Contact, Sparkles, Building2 } from 'lucide-react';
+import { GENERAL_MANAGER_ROLE, getAdminTabsForRole } from './lib/generalManagerAccess.js';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<'rep' | 'admin'>('rep');
@@ -84,6 +85,10 @@ export default function App() {
         if (data.authenticated && data.user) {
           setAdminUser(data.user.email);
           setAdminRole(data.user.role || 'Administrator');
+          if (data.user.role === GENERAL_MANAGER_ROLE) {
+            setAdminTab('ledger');
+            setCurrentView('admin');
+          }
           if (data.user.mustChangePassword) {
             setMustChangePassword(true);
           }
@@ -106,6 +111,15 @@ export default function App() {
 
   // Load configuration & data
   const refreshConfig = async () => {
+    if (adminUser && adminRole === GENERAL_MANAGER_ROLE) {
+      setReps([]);
+      setContacts([]);
+      setSpiffs([]);
+      setBranches([]);
+      setIsNeonConnected(false);
+      return;
+    }
+
     try {
       const [repsRes, spiffsRes, contactsRes, branchesRes, statusRes] = await Promise.all([
         (adminUser ? adminFetch('/api/admin/reps') : fetch('/api/reps')).then((r) => r.json()),
@@ -133,7 +147,7 @@ export default function App() {
 
   useEffect(() => {
     refreshConfig();
-  }, [adminUser]);
+  }, [adminUser, adminRole]);
 
   const handleSubmissionSuccess = (submission: SpiffSubmission) => {
     setLastSubmitted(submission);
@@ -155,6 +169,7 @@ export default function App() {
     }
     setAdminUser(email);
     setAdminRole(role || 'Administrator');
+    if (role === GENERAL_MANAGER_ROLE) setAdminTab('ledger');
     if (mustChange) {
       setMustChangePassword(true);
     }
@@ -167,6 +182,7 @@ export default function App() {
     setAdminUser(null);
     setAdminRole('Administrator');
     setMustChangePassword(false);
+    setAdminTab('ledger');
     setCurrentView('rep');
   };
 
@@ -316,12 +332,16 @@ export default function App() {
   const selectedRepRecord = decisionModalState.submission
     ? reps.find((r) => r.id === decisionModalState.submission?.repId) || null
     : null;
+  const visibleAdminTabs = getAdminTabsForRole(adminRole);
 
   return (
     <div className="min-h-screen bg-[#242424] text-gray-100 flex flex-col font-sans">
       <Header
         currentView={currentView}
-        onNavigate={(v) => setCurrentView(v)}
+        onNavigate={(v) => {
+          if (adminRole === GENERAL_MANAGER_ROLE && v !== 'admin') return;
+          setCurrentView(v);
+        }}
         adminUser={adminUser}
         adminRole={adminRole}
         onAdminLoginClick={() => setIsAdminLoginOpen(true)}
@@ -355,6 +375,7 @@ export default function App() {
                   <span>Submissions Ledger</span>
                 </button>
 
+                {visibleAdminTabs.includes('spiffs') && (
                 <button
                   onClick={() => setAdminTab('spiffs')}
                   className={`flex items-center space-x-2 py-3 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
@@ -366,7 +387,9 @@ export default function App() {
                   <Award className="w-4 h-4" />
                   <span>Spiff Programs ({spiffs.length})</span>
                 </button>
+                )}
 
+                {visibleAdminTabs.includes('reps') && (
                 <button
                   onClick={() => setAdminTab('reps')}
                   className={`flex items-center space-x-2 py-3 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
@@ -378,7 +401,9 @@ export default function App() {
                   <Users className="w-4 h-4" />
                   <span>Sales Reps ({reps.length})</span>
                 </button>
+                )}
 
+                {visibleAdminTabs.includes('contacts') && (
                 <button
                   onClick={() => setAdminTab('contacts')}
                   className={`flex items-center space-x-2 py-3 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
@@ -390,7 +415,9 @@ export default function App() {
                   <Contact className="w-4 h-4" />
                   <span>Notification Contacts ({contacts.length})</span>
                 </button>
+                )}
 
+                {visibleAdminTabs.includes('branches') && (
                 <button
                   onClick={() => setAdminTab('branches')}
                   className={`flex items-center space-x-2 py-3 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
@@ -402,7 +429,9 @@ export default function App() {
                   <Building2 className="w-4 h-4" />
                   <span>Branches ({branches.length})</span>
                 </button>
+                )}
 
+                {visibleAdminTabs.includes('settings') && (
                 <button
                   onClick={() => setAdminTab('settings')}
                   className={`flex items-center space-x-2 py-3 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
@@ -414,6 +443,7 @@ export default function App() {
                   <SettingsIcon className="w-4 h-4" />
                   <span>Notifications & Infrastructure</span>
                 </button>
+                )}
               </div>
             </div>
 
@@ -431,7 +461,7 @@ export default function App() {
               />
             )}
 
-            {adminTab === 'spiffs' && (
+            {adminTab === 'spiffs' && visibleAdminTabs.includes('spiffs') && (
               <AdminSpiffManager
                 spiffs={spiffs}
                 adminUser={adminUser || 'caleb@discountforkliftphoenix.com'}
@@ -441,7 +471,7 @@ export default function App() {
               />
             )}
 
-            {adminTab === 'reps' && (
+            {adminTab === 'reps' && visibleAdminTabs.includes('reps') && (
               <AdminRepManager
                 reps={reps}
                 contacts={contacts}
@@ -454,7 +484,7 @@ export default function App() {
               />
             )}
 
-            {adminTab === 'contacts' && (
+            {adminTab === 'contacts' && visibleAdminTabs.includes('contacts') && (
               <AdminContactsManager
                 contacts={contacts}
                 branches={branches}
@@ -466,7 +496,7 @@ export default function App() {
               />
             )}
 
-            {adminTab === 'branches' && (
+            {adminTab === 'branches' && visibleAdminTabs.includes('branches') && (
               <AdminBranchManager
                 branches={branches}
                 reps={reps}
@@ -477,7 +507,7 @@ export default function App() {
               />
             )}
 
-            {adminTab === 'settings' && (
+            {adminTab === 'settings' && visibleAdminTabs.includes('settings') && (
               <AdminSettings
                 adminUser={adminUser || 'caleb@discountforkliftphoenix.com'}
                 adminRole={adminRole}
@@ -488,7 +518,7 @@ export default function App() {
       </main>
 
       {/* Decision Confirmation Modal (Approve / Deny with recipient selection) */}
-      {decisionModalState.isOpen && (
+      {decisionModalState.isOpen && adminRole !== GENERAL_MANAGER_ROLE && (
         <DecisionConfirmModal
           isOpen={decisionModalState.isOpen}
           onClose={() => setDecisionModalState({ isOpen: false, submission: null, decision: 'approve' })}
@@ -557,6 +587,7 @@ export default function App() {
           onReopenDenied={handleReopenDeniedRequest}
           onViewPhoto={handleOpenPhoto}
           canRecoverPaidReceipt={adminRole === 'Administrator'}
+          readOnly={adminRole === GENERAL_MANAGER_ROLE}
           onRecoverPaidReceipt={handleRecoverPaidReceipt}
           onRetryPaidReceipt={handleRetryPaidReceipt}
         />

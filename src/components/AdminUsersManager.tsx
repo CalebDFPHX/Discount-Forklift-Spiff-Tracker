@@ -48,7 +48,7 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
   const [addMode, setAddMode] = useState<'invite' | 'direct'>('invite');
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
-  const [newRole, setNewRole] = useState<'Administrator' | 'Approving Manager'>('Approving Manager');
+  const [newRole, setNewRole] = useState<'Administrator' | 'Approving Manager' | 'General Manager'>('Approving Manager');
   const [newPassword, setNewPassword] = useState('');
   const [newConfirmPassword, setNewConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -432,6 +432,7 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
                         >
                           <option value="Approving Manager">Approving Manager</option>
                           <option value="Administrator">Administrator</option>
+                          <option value="General Manager">General Manager</option>
                         </select>
                       )}
                     </div>
@@ -617,9 +618,13 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
               </button>
               <button
                 type="button"
-                onClick={() => setAddMode('direct')}
+                onClick={() => {
+                  if (newRole !== 'General Manager') setAddMode('direct');
+                }}
+                disabled={newRole === 'General Manager'}
+                title={newRole === 'General Manager' ? 'General Managers must establish their own password using a single-use invite link.' : undefined}
                 className={`flex-1 py-1.5 text-xs font-bold rounded-lg border transition-colors ${
-                  addMode === 'direct'
+                  addMode === 'direct' && newRole !== 'General Manager'
                     ? 'bg-[#95EA00]/15 border-[#95EA00] text-white'
                     : 'bg-[#1e1e1e] border-[#444444] text-gray-400'
                 }`}
@@ -660,7 +665,7 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
                 <label className="block text-xs font-semibold text-gray-200 mb-1.5">
                   Account Role <span className="text-rose-400">*</span>
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => setNewRole('Approving Manager')}
@@ -693,6 +698,26 @@ export const AdminUsersManager: React.FC<AdminUsersManagerProps> = ({ adminUser,
                     </div>
                     <p className="text-[10px] text-gray-400 leading-tight">
                       Full system & user management
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNewRole('General Manager');
+                      setAddMode('invite');
+                    }}
+                    className={`p-2.5 rounded-lg border text-left transition-all ${
+                      newRole === 'General Manager'
+                        ? 'bg-sky-500/15 border-sky-400 text-white shadow-xs'
+                        : 'bg-[#1e1e1e] border-[#444444] text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs text-sky-200 mb-0.5">
+                      <Shield className="w-3.5 h-3.5 text-sky-300" />
+                      <span>General Manager</span>
+                    </div>
+                    <p className="text-[10px] text-gray-400 leading-tight">
+                      Read-only assigned-branch ledger
                     </p>
                   </button>
                 </div>

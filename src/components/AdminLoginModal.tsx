@@ -59,7 +59,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
     const cleanEmail = email.trim().toLowerCase();
     if (!cleanEmail) {
-      setError('Please enter your administrator email address.');
+      setError('Please enter your account email address.');
       return;
     }
     if (!password) {
@@ -312,20 +312,20 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         {mode === 'login' && (
           <>
             <p className="text-xs text-gray-300 mt-3 mb-4 leading-relaxed">
-              Authorized administrator access only. Accounts are strictly validated against the Neon database allowlist.
+              Authorized administrator and General Manager accounts use the same secure sign-in flow and are validated against the Neon database allowlist.
             </p>
 
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-200 mb-1">
-                  Administrator Email
+                  Account Email
                 </label>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-[#1e1e1e] border border-[#444444] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-[#95EA00] focus:border-[#95EA00]"
-                  placeholder="e.g. administrator@discountforkliftphoenix.com"
+                  placeholder="name@discountforkliftphoenix.com"
                   required
                 />
               </div>
@@ -374,7 +374,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                   className="w-full inline-flex items-center justify-center space-x-2 py-2.5 bg-[#A559BD] hover:bg-[#934da9] text-white font-bold text-sm rounded-lg shadow-md transition-colors disabled:opacity-50"
                 >
                   <Lock className="w-4 h-4" />
-                  <span>{isSubmitting ? 'Verifying Session...' : 'Sign In as Administrator'}</span>
+                  <span>{isSubmitting ? 'Verifying Session...' : 'Sign In'}</span>
                 </button>
               </div>
 
@@ -400,13 +400,13 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         {mode === 'forgot' && (
           <>
             <p className="text-xs text-gray-300 mt-3 mb-4 leading-relaxed">
-              Enter your registered administrator email address. If an active account exists, an expiring single-use reset link will be dispatched.
+              Enter your registered account email address. If an active account exists, an expiring single-use reset link will be dispatched.
             </p>
 
             <form onSubmit={handleForgotPassword} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-200 mb-1">
-                  Administrator Email
+                  Account Email
                 </label>
                 <input
                   type="email"

@@ -44,6 +44,10 @@ import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone.js';
 import { verifyEmailDecisionToken } from '../lib/emailDecisionTokens.js';
 import { getEmailTemplateDisplayName } from '../lib/emailTemplates.js';
 import {
+  canGeneralManagerAccessAdminRoute,
+  GENERAL_MANAGER_ROLE,
+} from '../lib/generalManagerAccess.js';
+import {
   buildWeeklySpiffReportContent,
   getPreviousPhoenixWeek,
   runWeeklySpiffReport,
@@ -171,6 +175,24 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
     });
   }
 
+  const adminRole = permCheck.user?.role || payload.role || 'Administrator';
+  if (adminRole === GENERAL_MANAGER_ROLE) {
+    if (!canGeneralManagerAccessAdminRoute(req.method, req.path)) {
+      return res.status(403).json({ error: 'General Managers have read-only ledger access.' });
+    }
+
+    try {
+      const branchIds = await Repository.getGeneralManagerBranchIds(payload.email);
+      if (branchIds.length === 0) {
+        return res.status(403).json({ error: 'No active branch assignment is configured for this General Manager account.' });
+      }
+      (req as any).generalManagerBranchIds = branchIds;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to verify General Manager branch access.';
+      return res.status(500).json({ error: message });
+    }
+  }
+
   // 4. CSRF Protection for state-changing mutations
   const mutationMethods = ['POST', 'PUT', 'PATCH', 'DELETE'];
   if (mutationMethods.includes(req.method.toUpperCase())) {
@@ -187,7 +209,7 @@ async function requireAdmin(req: express.Request, res: express.Response, next: e
   }
 
   (req as any).adminUser = payload.email;
-  (req as any).adminRole = permCheck.user?.role || payload.role || 'Administrator';
+  (req as any).adminRole = adminRole;
   next();
 }
 
@@ -246,6 +268,14 @@ app.post(
       if (!authResult.success || !authResult.user) {
         return res.status(401).json({ error: authResult.error || 'Invalid credentials' });
       }
+      if (
+        authResult.user.role === GENERAL_MANAGER_ROLE &&
+        (await Repository.getGeneralManagerBranchIds(authResult.user.email)).length === 0
+      ) {
+        return res.status(403).json({
+          error: 'No active branch assignment is configured for this General Manager account.',
+        });
+      }
 
       const sessionToken = createSessionToken(
         authResult.user.email,
@@ -299,6 +329,15 @@ app.get('/api/admin/session', async (req, res) => {
   const permCheck = await verifyAdminPermissions(payload.email, payload.iat);
   if (!permCheck.isAuthorized) {
     return res.json({ authenticated: false, error: permCheck.error });
+  }
+  if (
+    permCheck.user?.role === GENERAL_MANAGER_ROLE &&
+    (await Repository.getGeneralManagerBranchIds(payload.email)).length === 0
+  ) {
+    return res.json({
+      authenticated: false,
+      error: 'No active branch assignment is configured for this General Manager account.',
+    });
   }
 
   const csrfToken = createCsrfToken(payload.email);
@@ -816,6 +855,8 @@ app.get('/api/admin/submissions', requireAdmin, async (req, res) => {
       sortOrder,
     } = req.query as any;
 
+    const isGeneralManager = (req as any).adminRole === GENERAL_MANAGER_ROLE;
+    const branchIds = isGeneralManager ? (req as any).generalManagerBranchIds : undefined;
     const submissions = await Repository.getSubmissions({
       repId,
       status,
@@ -831,7 +872,11 @@ app.get('/api/admin/submissions', requireAdmin, async (req, res) => {
       search,
       sortBy,
       sortOrder,
+      branchIds,
     });
+    const availableReps = isGeneralManager
+      ? await Repository.getSubmissionRepOptions(branchIds)
+      : undefined;
 
     const pendingList = submissions.filter((s) => s.status === 'Pending');
     const pendingCount = pendingList.length;
@@ -865,6 +910,7 @@ app.get('/api/admin/submissions', requireAdmin, async (req, res) => {
 
     res.json({
       submissions,
+      ...(availableReps ? { availableReps } : {}),
       summary: {
         pendingCount,
         pendingDollarsFormatted: formatDollars(pendingDollarsCents),
@@ -884,7 +930,12 @@ app.get('/api/admin/submissions', requireAdmin, async (req, res) => {
 // Single request detail
 app.get('/api/admin/submissions/:id', requireAdmin, async (req, res) => {
   try {
-    const sub = await Repository.getSubmissionById(req.params.id);
+    const sub = await Repository.getSubmissionById(
+      req.params.id,
+      (req as any).adminRole === GENERAL_MANAGER_ROLE
+        ? (req as any).generalManagerBranchIds
+        : undefined
+    );
     if (!sub) return res.status(404).json({ error: 'Submission not found' });
     res.json({ submission: sub });
   } catch (err: any) {
@@ -1009,6 +1060,16 @@ app.get('/api/admin/attachments/:id/view', requireAdmin, async (req, res) => {
     if (!attachment) {
       return res.status(404).json({ error: 'Attachment not found.' });
     }
+    if (
+      (req as any).adminRole === GENERAL_MANAGER_ROLE &&
+      (!attachment.submissionId ||
+        !(await Repository.getSubmissionById(
+          attachment.submissionId,
+          (req as any).generalManagerBranchIds
+        )))
+    ) {
+      return res.status(404).json({ error: 'Attachment not found.' });
+    }
 
     const photoData = await retrievePhotoImage(attachment.storageKey);
     if (photoData) {
@@ -1032,6 +1093,16 @@ app.get('/api/admin/attachments/:id/download', requireAdmin, async (req, res) =>
   try {
     const attachment = await Repository.getAttachment(req.params.id);
     if (!attachment) {
+      return res.status(404).json({ error: 'Attachment not found.' });
+    }
+    if (
+      (req as any).adminRole === GENERAL_MANAGER_ROLE &&
+      (!attachment.submissionId ||
+        !(await Repository.getSubmissionById(
+          attachment.submissionId,
+          (req as any).generalManagerBranchIds
+        )))
+    ) {
       return res.status(404).json({ error: 'Attachment not found.' });
     }
 

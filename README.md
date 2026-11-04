@@ -11,7 +11,7 @@ Sales representatives submit cash spiff requests after closing a forklift sale. 
 - **Framework**: React SPA with TypeScript & Tailwind CSS served via production Express/Node.js runtime.
 - **Persistent Database**: [Neon PostgreSQL](https://neon.tech) utilizing serverless pooling (`@neondatabase/serverless`).
 - **ORM & Migrations**: [Drizzle ORM](https://orm.drizzle.team) with version-controlled migrations (`drizzle/`).
-- **Administrator Authentication**: Secure email-and-password authentication with cryptographic salted scrypt hashing, expiring single-use invite and reset tokens, HttpOnly SameSite session cookies, and explicit database allowlist enforcement in Neon. No Google OAuth or client-side credentials.
+- **Manager Authentication**: Administrators, Approving Managers, and General Managers use secure email-and-password authentication with cryptographic salted scrypt hashing, expiring single-use invite and reset tokens, HttpOnly SameSite session cookies, and explicit database allowlist enforcement in Neon. No Google OAuth or client-side credentials.
 - **Administrative Deletion**: Administrators can permanently delete ledger submissions and remove unused configuration records. Submission deletion removes its photo, audit history, and email jobs; sales reps and spiff programs with submission history must be deactivated instead of deleted.
 - **Shared Rate Limiting**: Multi-instance persistent rate limiting backed by Neon (`rate_limits` table) with trusted platform IP detection.
 - **Email Notifications**: [Resend](https://resend.com) transactional emails with database job queues and retry idempotency.
@@ -96,9 +96,10 @@ When connecting a production Neon database to Vercel or cloud hosting:
 ### 4. Administrator Invitations & Password Reset
 1. **Inviting Additional Administrators**:
    - Authorized administrators log in and navigate to the **User Management** tab.
-   - Click **Add / Invite Admin**, enter their email, name, and role (`Administrator` or `Approving Manager`).
+   - Click **Add / Invite Admin**, enter their email, name, and role (`Administrator`, `Approving Manager`, or `General Manager`).
    - Choose **Single-Use Invite Link** to generate a cryptographic, single-use token valid for 24 hours.
    - Deliver the setup link to the manager. Once they choose a password, the token is consumed atomically and cannot be reused.
+   - Before inviting a General Manager, create or activate their **General Manager** notification contact and assign its **Branch** to an active branch. The account email must match that contact. General Managers see only the ledger and submissions for those explicitly assigned branches; rep-to-GM assignments do not grant branch access. New General Manager accounts must use the single-use invite flow to set their own password.
 2. **Self-Service Password Reset**:
    - On the login screen, click **Forgot password?** and submit your administrator email.
    - To prevent account enumeration attacks, the system returns an identical confirmation message regardless of whether the email exists.

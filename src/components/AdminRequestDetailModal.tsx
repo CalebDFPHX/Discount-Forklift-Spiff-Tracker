@@ -30,6 +30,7 @@ interface AdminRequestDetailModalProps {
   onReopenDenied: (id: string, explanation: string) => Promise<void>;
   onViewPhoto: (submission: SpiffSubmission, attachment?: Attachment) => void;
   canRecoverPaidReceipt: boolean;
+  readOnly?: boolean;
   onRecoverPaidReceipt: (id: string) => Promise<PaidReceiptNotificationResult[]>;
   onRetryPaidReceipt: (jobId: string) => Promise<PaidReceiptNotificationResult>;
 }
@@ -46,6 +47,7 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
   onReopenDenied,
   onViewPhoto,
   canRecoverPaidReceipt,
+  readOnly = false,
   onRecoverPaidReceipt,
   onRetryPaidReceipt,
 }) => {
@@ -579,7 +581,7 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
           )}
         </div>
 
-        {submission.status === 'Approved' && (
+        {!readOnly && submission.status === 'Approved' && (
           <div className="border-t border-[#383838] bg-[#242424] p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -634,7 +636,7 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
         {/* Action Controls Footer */}
         <div className="p-4 bg-[#1e1e1e] border-t border-[#383838] flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center space-x-2">
-            {!isEditing && (
+            {!readOnly && !isEditing && (
               <button
                 type="button"
                 onClick={startEditing}
@@ -645,7 +647,7 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
                 <span>Correct Details</span>
               </button>
             )}
-            {!isEditing && canReopenDenied && submission.status === 'Rejected' && (
+            {!readOnly && !isEditing && canReopenDenied && submission.status === 'Rejected' && (
               <button
                 type="button"
                 onClick={() => setIsReopeningDenied(true)}
@@ -660,7 +662,7 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
 
           <div className="flex items-center space-x-2">
             {/* Status-specific primary actions */}
-            {submission.status === 'Pending' && (
+            {!readOnly && submission.status === 'Pending' && (
               <>
                 {/* DENY BUTTON: Distinct label + icon */}
                 <button
@@ -686,7 +688,7 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
               </>
             )}
 
-            {submission.status === 'Approved' && (
+            {!readOnly && submission.status === 'Approved' && (
               <button
                 type="button"
                 onClick={handleMarkPaid}

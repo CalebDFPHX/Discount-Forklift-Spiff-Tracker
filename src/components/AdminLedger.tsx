@@ -47,6 +47,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
   refreshTrigger,
 }) => {
   const [submissions, setSubmissions] = useState<SpiffSubmission[]>([]);
+  const [gmRepOptions, setGmRepOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [summary, setSummary] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [deletingSubmissionId, setDeletingSubmissionId] = useState<string | null>(null);
@@ -77,6 +78,9 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
       const res = await adminFetch(`/api/admin/submissions?${params.toString()}`);
       const data = await res.json();
       setSubmissions(data.submissions || []);
+      if (adminRole === 'General Manager') {
+        setGmRepOptions(data.availableReps || []);
+      }
       setSummary(data.summary || null);
     } catch (err) {
       console.error('Failed to load submissions:', err);
@@ -143,6 +147,8 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
     window.location.href = `/api/admin/export/csv?${params.toString()}`;
   };
 
+  const isGeneralManager = adminRole === 'General Manager';
+  const repOptions = isGeneralManager ? gmRepOptions : reps;
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -277,7 +283,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
               className="w-full py-1.5 px-2.5 text-xs bg-[#1e1e1e] border border-[#444444] rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
             >
               <option value="all">All Sales Reps</option>
-              {reps.map((r) => (
+              {repOptions.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.name}
                 </option>
@@ -302,13 +308,15 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
 
           {/* CSV Export & Reset Actions */}
           <div className="flex items-center space-x-2">
-            <button
-              onClick={handleExportCsv}
-              className="flex-1 inline-flex items-center justify-center space-x-1.5 py-1.5 px-3 bg-[#A559BD] hover:bg-[#934da9] text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export CSV</span>
-            </button>
+            {!isGeneralManager && (
+              <button
+                onClick={handleExportCsv}
+                className="flex-1 inline-flex items-center justify-center space-x-1.5 py-1.5 px-3 bg-[#A559BD] hover:bg-[#934da9] text-white rounded-lg text-xs font-bold shadow-xs transition-colors"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export CSV</span>
+              </button>
+            )}
             <button
               onClick={handleResetFilters}
               title="Reset Filters"
@@ -569,7 +577,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
                     {/* Decisions & Actions Column */}
                     <td className="py-3 px-3 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end space-x-1.5">
-                        {sub.status === 'Pending' ? (
+                        {sub.status === 'Pending' && !isGeneralManager ? (
                           <>
                             {/* APPROVE BUTTON: Distinct label + icon */}
                             <button

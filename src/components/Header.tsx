@@ -1,6 +1,7 @@
 import React from 'react';
 import { Truck, ShieldCheck, LogIn, LogOut, Database } from 'lucide-react';
 import { DiscountForkliftLogo } from './DiscountForkliftLogo';
+import { GENERAL_MANAGER_ROLE } from '../lib/generalManagerAccess';
 
 interface HeaderProps {
   currentView: 'rep' | 'admin';
@@ -26,7 +27,12 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Brand Identity */}
-          <div className="cursor-pointer group" onClick={() => onNavigate('rep')}>
+          <div
+            className={adminRole === GENERAL_MANAGER_ROLE ? 'cursor-default' : 'cursor-pointer group'}
+            onClick={() => {
+              if (adminRole !== GENERAL_MANAGER_ROLE) onNavigate('rep');
+            }}
+          >
             <DiscountForkliftLogo
               size="md"
               canChangeBrandPhoto={Boolean(adminUser && adminRole === 'Administrator')}
@@ -35,7 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Navigation & Admin Auth */}
           <div className="flex items-center space-x-3">
-            {isNeonConnected && (
+            {isNeonConnected && adminRole !== GENERAL_MANAGER_ROLE && (
               <div className="hidden sm:flex items-center text-xs text-gray-300 space-x-1.5 px-2.5 py-1 rounded bg-[#292929] border border-[#444444]">
                 <Database className="w-3.5 h-3.5 text-[#95EA00]" />
                 <span className="text-[11px] font-medium">Neon Connected</span>
@@ -45,16 +51,18 @@ export const Header: React.FC<HeaderProps> = ({
             {/* View Switchers */}
             {adminUser ? (
               <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => onNavigate('rep')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                    currentView === 'rep'
-                      ? 'bg-[#333333] text-white border border-[#525252]'
-                      : 'text-gray-300 hover:text-white hover:bg-[#2d2d2d]'
-                  }`}
-                >
-                  Rep Form
-                </button>
+                {adminRole !== GENERAL_MANAGER_ROLE && (
+                  <button
+                    onClick={() => onNavigate('rep')}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                      currentView === 'rep'
+                        ? 'bg-[#333333] text-white border border-[#525252]'
+                        : 'text-gray-300 hover:text-white hover:bg-[#2d2d2d]'
+                    }`}
+                  >
+                    Rep Form
+                  </button>
+                )}
                 <button
                   onClick={() => onNavigate('admin')}
                   className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
@@ -63,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({
                       : 'text-gray-300 hover:text-white hover:bg-[#2d2d2d]'
                   }`}
                 >
-                  Admin Ledger
+                  {adminRole === GENERAL_MANAGER_ROLE ? 'Ledger' : 'Admin Ledger'}
                 </button>
 
                 <div className="hidden md:flex items-center pl-2 text-xs text-gray-300 border-l border-[#444444] space-x-2">
@@ -95,7 +103,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="inline-flex items-center space-x-1 text-xs text-gray-300 hover:text-[#95EA00] transition-colors px-3 py-1.5 rounded-lg border border-[#444444] bg-[#292929] hover:bg-[#333333]"
                 >
                   <ShieldCheck className="w-3.5 h-3.5 text-[#95EA00]" />
-                  <span>Admin Login</span>
+                  <span>Secure Login</span>
                 </button>
               </div>
             )}

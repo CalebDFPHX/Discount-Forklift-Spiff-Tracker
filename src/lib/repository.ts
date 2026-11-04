@@ -17,6 +17,7 @@ import {
   BLOCKED_NOTIFICATION_RECIPIENT_EMAILS,
   isBlockedNotificationRecipient,
 } from './recipientPolicy.js';
+import { resolveGeneralManagerBranchIds } from './generalManagerAccess.js';
 import {
   EmailTemplate,
   EmailTemplateVersion,
@@ -812,6 +813,14 @@ export const Repository = {
   async getActiveContacts(): Promise<NotificationContact[]> {
     const all = await this.getAllContacts();
     return all.filter((c) => c.isActive);
+  },
+
+  async getGeneralManagerBranchIds(email: string): Promise<string[]> {
+    const [contacts, branches] = await Promise.all([
+      this.getAllContacts(),
+      this.getActiveBranches(),
+    ]);
+    return resolveGeneralManagerBranchIds(email, contacts, branches);
   },
 
   async getConfiguredActiveContacts(): Promise<NotificationContact[]> {
@@ -1892,6 +1901,7 @@ export const Repository = {
   // ----------------------------------------------------
   async getSubmissions(params?: {
     repId?: string;
+    branchIds?: string[];
     status?: string;
     startDate?: string;
     endDate?: string;
@@ -1906,6 +1916,8 @@ export const Repository = {
     sortBy?: 'submittedAt' | 'approvedAt' | 'rep' | 'amount';
     sortOrder?: 'asc' | 'desc';
   }): Promise<SpiffSubmission[]> {
+    if (params?.branchIds && params.branchIds.length === 0) return [];
+
     // Determine effective date filter ranges
     const filterType = params?.dateFilterType || (params?.startDate || params?.endDate ? 'submission' : undefined);
 
@@ -1932,6 +1944,9 @@ export const Repository = {
 
     if (this.isLiveDatabaseConnected() && db) {
       const conditions: any[] = [];
+      if (params?.branchIds) {
+        conditions.push(inArray(schema.spiffSubmissions.branchId, params.branchIds));
+      }
       if (params?.repId && params.repId !== 'all') {
         conditions.push(eq(schema.spiffSubmissions.repId, params.repId));
       }
@@ -2035,6 +2050,10 @@ export const Repository = {
 
     let list = [...memoryStore.submissions];
 
+    if (params?.branchIds) {
+      const branchIds = new Set(params.branchIds);
+      list = list.filter((submission) => Boolean(submission.branchId && branchIds.has(submission.branchId)));
+    }
     if (params?.repId && params.repId !== 'all') {
       list = list.filter((s) => s.repId === params.repId);
     }
@@ -2098,12 +2117,17 @@ export const Repository = {
   },
 
 
-  async getSubmissionById(id: string): Promise<SpiffSubmission | null> {
+  async getSubmissionById(id: string, branchIds?: string[]): Promise<SpiffSubmission | null> {
+    if (branchIds && branchIds.length === 0) return null;
     if (this.isLiveDatabaseConnected() && db) {
+      const conditions = [eq(schema.spiffSubmissions.id, id)];
+      if (branchIds) {
+        conditions.push(inArray(schema.spiffSubmissions.branchId, branchIds));
+      }
       const rows = await db
         .select()
         .from(schema.spiffSubmissions)
-        .where(eq(schema.spiffSubmissions.id, id))
+        .where(and(...conditions))
         .limit(1);
 
       if (rows.length === 0) return null;
@@ -2142,12 +2166,34 @@ export const Repository = {
       };
     }
 
-    const sub = memoryStore.submissions.find((s) => s.id === id);
+    const sub = memoryStore.submissions.find(
+      (s) => s.id === id && (!branchIds || Boolean(s.branchId && branchIds.includes(s.branchId)))
+    );
     if (!sub) return null;
     return {
       ...sub,
       auditEvents: memoryStore.auditEvents.filter((a) => a.submissionId === id),
     };
+  },
+
+  async getSubmissionRepOptions(branchIds: string[]): Promise<Array<{ id: string; name: string }>> {
+    if (branchIds.length === 0) return [];
+
+    const rows = this.isLiveDatabaseConnected() && db
+      ? await db
+          .select({
+            id: schema.spiffSubmissions.repId,
+            name: schema.spiffSubmissions.snapshotRepName,
+          })
+          .from(schema.spiffSubmissions)
+          .where(inArray(schema.spiffSubmissions.branchId, branchIds))
+          .orderBy(asc(schema.spiffSubmissions.snapshotRepName))
+      : memoryStore.submissions
+          .filter((submission) => Boolean(submission.branchId && branchIds.includes(submission.branchId)))
+          .map((submission) => ({ id: submission.repId, name: submission.snapshotRepName }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+
+    return [...new Map(rows.map((rep) => [rep.id, rep])).values()];
   },
 
   async deleteSubmission(id: string): Promise<{ photoCleanupFailures: string[] }> {
