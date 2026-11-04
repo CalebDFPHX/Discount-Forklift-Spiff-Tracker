@@ -113,6 +113,7 @@ export const SubmissionSuccessModal: React.FC<SubmissionSuccessModalProps> = ({
         </div>
 
         <button
+          type="button"
           onClick={onReset}
           className="w-full inline-flex items-center justify-center space-x-2 py-3 bg-[#A559BD] hover:bg-[#934da9] text-white font-bold text-sm rounded-lg shadow-md transition-colors"
         >
