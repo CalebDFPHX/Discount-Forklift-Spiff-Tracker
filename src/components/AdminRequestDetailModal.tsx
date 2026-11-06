@@ -17,6 +17,7 @@ import { Attachment, PaidReceiptNotificationResult, SpiffSubmission } from '../l
 import { formatDollars, parseDollarsToCents, validateSerialSuffix } from '../lib/formatters';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone';
 import { getSubmissionPhotos } from '../lib/photoAttachments';
+import { PandadocsConfirmation } from './PandadocsConfirmation.js';
 
 interface AdminRequestDetailModalProps {
   submission: SpiffSubmission | null;
@@ -464,6 +465,9 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
                 </div>
                 <div className="text-xs text-gray-300">
                   Half spiff amount: {submission.isHalfSpiffAmount ? 'Yes' : 'No'}
+                </div>
+                <div className="text-xs text-gray-300">
+                  Pandadocs signed: <PandadocsConfirmation value={submission.pandadocsSigned} />
                 </div>
                 <div className="text-xs space-y-1.5">
                   <div className="font-semibold text-white">{submission.snapshotSpiffName}</div>

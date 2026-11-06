@@ -638,6 +638,7 @@ app.post(
         branchId,
         spiffId,
         halfSpiffAmount,
+        pandadocsSigned,
         liftName,
         serialSuffix,
         saleDate,
@@ -646,6 +647,12 @@ app.post(
         attachmentId,
         idempotencyKey,
       } = req.body;
+
+      if (pandadocsSigned !== true) {
+        return res.status(400).json({
+          error: 'Please confirm that Pandadocs is signed before submitting.',
+        });
+      }
 
       const requestedAttachmentIds = attachmentIds ?? (attachmentId ? [attachmentId] : []);
       if (!Array.isArray(requestedAttachmentIds)) {
@@ -663,6 +670,7 @@ app.post(
         branchId,
         spiffId,
         halfSpiffAmount,
+        pandadocsSigned,
         liftName,
         serialSuffix,
         saleDate,

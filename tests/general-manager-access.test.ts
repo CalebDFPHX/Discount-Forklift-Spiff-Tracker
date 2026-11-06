@@ -15,6 +15,7 @@ const { getAdminTabsForRole } = await import('../src/lib/generalManagerAccess.js
 const { default: app } = await import('../src/server/app.js');
 const { Header } = await import('../src/components/Header.js');
 const { AdminRequestDetailModal } = await import('../src/components/AdminRequestDetailModal.js');
+const { PandadocsConfirmation } = await import('../src/components/PandadocsConfirmation.js');
 const { AdminLedger, LedgerMarkPaidAction } = await import('../src/components/AdminLedger.js');
 
 Object.defineProperty(globalThis, 'localStorage', {
@@ -314,6 +315,7 @@ describe('General Manager access', () => {
       })
     );
     assert.match(details, /Mark as Paid \(Preserves Approval Date\)/);
+    assert.match(details, /Pandadocs signed: Not recorded/);
     assert.doesNotMatch(details, /Correct Details|Approve Request|Deny Request|Reopen as Pending|Recover receipt/);
     assert.match(details, /Authorized submission details/);
 
@@ -399,6 +401,45 @@ describe('General Manager access', () => {
     );
     assert.match(administratorLedger, /All Locations/);
     assert.match(administratorLedger, /No Location/);
+  });
+
+  it('shows PandaDocs confirmation as Yes only when recorded in the ledger display and details', () => {
+    for (const [value, expected] of [
+      [true, 'Yes'],
+      [false, 'Not recorded'],
+      [undefined, 'Not recorded'],
+    ] as const) {
+      const ledgerDisplay = renderToStaticMarkup(
+        React.createElement(PandadocsConfirmation, { value })
+      );
+      assert.equal(ledgerDisplay, expected);
+
+      const details = renderToStaticMarkup(
+        React.createElement(AdminRequestDetailModal, {
+          submission: {
+            ...fixtureSubmission(APPROVED_ID, OWN_BRANCH_ID, 'Approved'),
+            ...(value === undefined ? {} : { pandadocsSigned: value }),
+          },
+          isOpen: true,
+          onClose: () => undefined,
+          adminUser: GM_EMAIL,
+          onOpenDecisionModal: () => undefined,
+          onMarkPaid: async () => undefined,
+          onCorrect: async () => undefined,
+          canReopenDenied: false,
+          onReopenDenied: async () => undefined,
+          onViewPhoto: () => undefined,
+          canRecoverPaidReceipt: false,
+          readOnly: true,
+          canMarkPaid: true,
+          onRecoverPaidReceipt: async () => [],
+          onRetryPaidReceipt: async () => {
+            throw new Error('Not available in read-only view');
+          },
+        })
+      );
+      assert.ok(details.includes(`Pandadocs signed: ${expected}`));
+    }
   });
 
   it('scopes ledger filters and details to assigned branch IDs on the server', async () => {

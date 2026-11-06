@@ -209,6 +209,7 @@ export interface SpiffSubmission {
   snapshotEligibilityRequirements: string;
   snapshotAmountCents: number;
   isHalfSpiffAmount: boolean;
+  pandadocsSigned?: boolean;
   isPotentialDuplicate: boolean;
   duplicateReason?: string | null;
   decisionMessage?: string | null;
@@ -1614,6 +1615,7 @@ export const Repository = {
     attachmentIds?: string[];
     attachmentId?: string;
     halfSpiffAmount?: boolean;
+    pandadocsSigned: boolean;
     idempotencyKey?: string;
     appUrl?: string;
   }): Promise<{ submission: SpiffSubmission; isDuplicateAttempt: boolean }> {
@@ -1631,6 +1633,9 @@ export const Repository = {
     if (!input.branchId) throw new Error('Branch is required.');
     if (!input.repId) throw new Error('Sales rep is required.');
     if (!input.spiffId) throw new Error('Eligible spiff is required.');
+    if (input.pandadocsSigned !== true) {
+      throw new Error('Please confirm that Pandadocs is signed before submitting.');
+    }
     if (input.halfSpiffAmount !== undefined && typeof input.halfSpiffAmount !== 'boolean') {
       throw new Error('Half spiff amount must be a boolean.');
     }
@@ -1761,6 +1766,7 @@ export const Repository = {
       snapshotEligibilityRequirements: spiff.eligibilityRequirements,
       snapshotAmountCents: serverAmountCents,
       isHalfSpiffAmount,
+      pandadocsSigned: input.pandadocsSigned,
       isPotentialDuplicate,
       duplicateReason,
       submittedAt: now,
@@ -1868,6 +1874,7 @@ export const Repository = {
           snapshotEligibilityRequirements: newSubmission.snapshotEligibilityRequirements,
           snapshotAmountCents: newSubmission.snapshotAmountCents,
           isHalfSpiffAmount: newSubmission.isHalfSpiffAmount,
+          pandadocsSigned: newSubmission.pandadocsSigned,
           isPotentialDuplicate: newSubmission.isPotentialDuplicate,
           duplicateReason: newSubmission.duplicateReason,
         });

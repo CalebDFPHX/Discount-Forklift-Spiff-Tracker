@@ -73,6 +73,7 @@ export const spiffSubmissions = pgTable(
     snapshotEligibilityRequirements: text('snapshot_eligibility_requirements').notNull(),
     snapshotAmountCents: integer('snapshot_amount_cents').notNull(),
     isHalfSpiffAmount: boolean('is_half_spiff_amount').default(false).notNull(),
+    pandadocsSigned: boolean('pandadocs_signed').default(false).notNull(),
 
     // Potential duplicate flag
     isPotentialDuplicate: boolean('is_potential_duplicate').default(false).notNull(),

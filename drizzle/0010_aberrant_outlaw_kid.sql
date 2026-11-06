@@ -1,0 +1,1 @@
+ALTER TABLE "spiff_submissions" ADD COLUMN "pandadocs_signed" boolean DEFAULT false NOT NULL;

@@ -252,6 +252,7 @@ describe('canonical notification action URLs', () => {
         liftName: 'URL Test Forklift',
         serialSuffix: '4321',
         saleDate: '2026-10-18',
+        pandadocsSigned: true,
         attachmentId,
         appUrl: stableOrigin,
       });

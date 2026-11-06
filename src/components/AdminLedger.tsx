@@ -23,6 +23,7 @@ import { SpiffSubmission, SalesRep } from '../lib/repository';
 import { formatDollars } from '../lib/formatters';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone';
 import { adminFetch } from '../lib/api';
+import { PandadocsConfirmation } from './PandadocsConfirmation.js';
 import { getSubmissionPhotos } from '../lib/photoAttachments';
 
 interface AdminLedgerProps {
@@ -642,6 +643,9 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
                       <div>{formatDollars(sub.snapshotAmountCents)}</div>
                       <div className="mt-1 text-[10px] font-medium text-gray-400">
                         Half spiff: {sub.isHalfSpiffAmount ? 'Yes' : 'No'}
+                      </div>
+                      <div className="text-[10px] font-medium text-gray-400">
+                        Pandadocs signed: <PandadocsConfirmation value={sub.pandadocsSigned} />
                       </div>
                     </td>
 

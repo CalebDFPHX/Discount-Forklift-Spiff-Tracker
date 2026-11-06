@@ -127,6 +127,7 @@ function submissionInput(attachmentIds: string[]) {
     liftName: 'Unit Test Lift',
     serialSuffix: 'XY99',
     saleDate: '2026-10-23',
+    pandadocsSigned: true,
     attachmentIds,
     idempotencyKey: `photo-test-${Date.now()}-${Math.random()}`,
     appUrl: 'https://photo-test.example',
@@ -269,9 +270,42 @@ describe('photo submission and reviewer access', () => {
       assert.equal(response.status, 200, JSON.stringify(body));
       assert.equal(body.submission.branchId, testBranchId);
       assert.equal(body.submission.snapshotBranchName, 'Photo Test Branch');
+      assert.equal(body.submission.pandadocsSigned, true);
       assert.equal(body.submission.attachments.length, 1);
       assert.equal(body.submission.attachment.id, attachmentId);
       assert.equal(body.submission.attachments[0].submissionId, body.submission.id);
+      testSubmissionIds.add(body.submission.id);
+    });
+  });
+
+  it('rejects missing or unchecked Pandadocs confirmation and saves the checked confirmation', async () => {
+    await withServer(async (baseUrl) => {
+      const attachmentId = await uploadTestPhoto(baseUrl);
+      const missingPayload = submissionInput([attachmentId]);
+      Reflect.deleteProperty(missingPayload, 'pandadocsSigned');
+
+      for (const payload of [missingPayload, { ...submissionInput([attachmentId]), pandadocsSigned: false }]) {
+        const response = await fetch(`${baseUrl}/api/submissions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        assert.equal(response.status, 400);
+        assert.match((await response.json()).error, /confirm that Pandadocs is signed/i);
+      }
+
+      const response = await fetch(`${baseUrl}/api/submissions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(submissionInput([attachmentId])),
+      });
+      const body = await response.json();
+      assert.equal(response.status, 200, JSON.stringify(body));
+      assert.equal(body.submission.pandadocsSigned, true);
+      assert.equal(
+        (await Repository.getSubmissionById(body.submission.id))?.pandadocsSigned,
+        true
+      );
       testSubmissionIds.add(body.submission.id);
     });
   });

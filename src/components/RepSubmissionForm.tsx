@@ -29,6 +29,8 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
   const [saleDate, setSaleDate] = useState(getPhoenixTodayString());
   const [selectedSpiffId, setSelectedSpiffId] = useState('');
   const [halfSpiffAmount, setHalfSpiffAmount] = useState(false);
+  const [pandadocsSigned, setPandadocsSigned] = useState(false);
+  const [pandadocsError, setPandadocsError] = useState(false);
   const [notes, setNotes] = useState('');
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const [isUploadingPhotos, setIsUploadingPhotos] = useState(false);
@@ -74,6 +76,12 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError(null);
+    if (!pandadocsSigned) {
+      setPandadocsError(true);
+      setFormError('Please confirm that Pandadocs is signed before submitting.');
+      return;
+    }
+    setPandadocsError(false);
 
     // Client-side quick checks
     if (!selectedBranchId) {
@@ -128,6 +136,7 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
           branchId: selectedBranchId,
           spiffId: selectedSpiffId,
           halfSpiffAmount,
+          pandadocsSigned,
           liftName: liftName.trim(),
           serialSuffix: serialCheck.normalized,
           saleDate,
@@ -441,6 +450,38 @@ export const RepSubmissionForm: React.FC<RepSubmissionFormProps> = ({
             onChange={(e) => setNotes(e.target.value)}
             className="w-full bg-[#1e1e1e] border border-[#444444] rounded-lg px-3.5 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#95EA00] focus:border-[#95EA00] shadow-inner"
           />
+        </div>
+
+        <div
+          className={`rounded-lg border p-4 ${
+            pandadocsError ? 'border-rose-700 bg-rose-950/30' : 'border-[#444444] bg-[#242424]'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <label htmlFor="pandadocsSigned" className="flex items-center gap-2 text-sm font-semibold text-white">
+              <input
+                id="pandadocsSigned"
+                type="checkbox"
+                checked={pandadocsSigned}
+                aria-required="true"
+                aria-invalid={pandadocsError}
+                aria-describedby={pandadocsError ? 'pandadocs-signed-error' : undefined}
+                onChange={(event) => {
+                  setPandadocsSigned(event.target.checked);
+                  setPandadocsError(false);
+                  setFormError(null);
+                }}
+                className="h-4 w-4 rounded border-[#444444] bg-[#1e1e1e] accent-[#95EA00] focus:ring-2 focus:ring-[#95EA00]"
+              />
+              <span>Pandadocs signed</span>
+            </label>
+            <span className="text-xs font-semibold text-rose-300">Required</span>
+          </div>
+          {pandadocsError && (
+            <p id="pandadocs-signed-error" className="mt-2 text-xs text-rose-200" role="alert">
+              Please check this box to confirm that Pandadocs is signed.
+            </p>
+          )}
         </div>
 
         {/* Submit Button */}
