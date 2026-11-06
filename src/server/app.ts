@@ -854,6 +854,7 @@ app.get('/api/admin/submissions', requireAdmin, async (req, res) => {
       search,
       sortBy,
       sortOrder,
+      location,
     } = req.query as any;
     const rawPage = req.query.page;
     const rawPageSize = req.query.pageSize;
@@ -885,6 +886,7 @@ app.get('/api/admin/submissions', requireAdmin, async (req, res) => {
       search,
       sortBy,
       sortOrder,
+      location: isGeneralManager ? undefined : location,
       branchIds,
       page,
       pageSize: pageSize as 10 | 50 | 100,
@@ -892,10 +894,14 @@ app.get('/api/admin/submissions', requireAdmin, async (req, res) => {
     const availableReps = isGeneralManager
       ? await Repository.getSubmissionRepOptions(branchIds)
       : undefined;
+    const availableLocations = isGeneralManager
+      ? undefined
+      : await Repository.getSubmissionLocationOptions();
 
     res.json({
       submissions: result.submissions,
       ...(availableReps ? { availableReps } : {}),
+      ...(availableLocations ? { availableLocations } : {}),
       pagination: {
         page: result.page,
         pageSize,
@@ -1140,7 +1146,9 @@ app.get('/api/admin/export/csv', requireAdmin, async (req, res) => {
       search,
       sortBy,
       sortOrder,
+      location,
     } = req.query as any;
+    const isGeneralManager = (req as any).adminRole === GENERAL_MANAGER_ROLE;
     const submissions = await Repository.getSubmissions({
       repId,
       status,
@@ -1156,6 +1164,8 @@ app.get('/api/admin/export/csv', requireAdmin, async (req, res) => {
       search,
       sortBy,
       sortOrder,
+      location: isGeneralManager ? undefined : location,
+      branchIds: isGeneralManager ? (req as any).generalManagerBranchIds : undefined,
     });
 
     const headers = [

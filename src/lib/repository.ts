@@ -1,5 +1,5 @@
 import { db, schema, isNeonConfigured } from '../db/index.js';
-import { eq, desc, asc, and, gte, lte, lt, like, or, sql, isNull, inArray, count, sum } from 'drizzle-orm';
+import { eq, desc, asc, and, gte, lte, lt, like, or, sql, isNull, isNotNull, inArray, count, sum } from 'drizzle-orm';
 import {
   sendSpiffSubmissionEmail,
   sendSpiffDecisionResultEmail,
@@ -1256,6 +1256,35 @@ export const Repository = {
     );
   },
 
+  async getSubmissionLocationOptions(): Promise<Array<{ value: string; name: string }>> {
+    const branches = await this.getAllBranches();
+    const branchNames = new Set(branches.map((branch) => branch.name.trim().toLowerCase()));
+    const locationOptions = branches.map((branch) => ({
+      value: `branch:${branch.id}`,
+      name: branch.name,
+    }));
+    const snapshotNames = this.isLiveDatabaseConnected() && db
+      ? (await db
+          .selectDistinct({ name: schema.spiffSubmissions.snapshotBranchName })
+          .from(schema.spiffSubmissions)
+          .where(isNotNull(schema.spiffSubmissions.snapshotBranchName)))
+        .map((row) => row.name)
+      : memoryStore.submissions.map((submission) => submission.snapshotBranchName);
+    const seenSnapshotNames = new Set<string>();
+
+    for (const rawName of snapshotNames) {
+      const name = rawName?.trim();
+      const normalizedName = name?.toLowerCase();
+      if (!name || !normalizedName || branchNames.has(normalizedName) || seenSnapshotNames.has(normalizedName)) {
+        continue;
+      }
+      seenSnapshotNames.add(normalizedName);
+      locationOptions.push({ value: `snapshot:${name}`, name });
+    }
+
+    return locationOptions;
+  },
+
   async getActiveBranches(): Promise<Branch[]> {
     const all = await this.getAllBranches();
     return all.filter((b) => b.isActive);
@@ -1902,9 +1931,28 @@ export const Repository = {
   // ----------------------------------------------------
   // 6. Query Submissions
   // ----------------------------------------------------
+  async resolveSubmissionLocationFilter(location?: string) {
+    if (!location || location === 'all') return null;
+    if (location === 'none') return { kind: 'none' as const };
+    if (location.startsWith('branch:')) {
+      const branchId = location.slice('branch:'.length);
+      if (!branchId) return { kind: 'invalid' as const };
+      const branch = (await this.getAllBranches()).find((candidate) => candidate.id === branchId);
+      return { kind: 'branch' as const, branchId, branchName: branch?.name };
+    }
+    if (location.startsWith('snapshot:')) {
+      const snapshotName = location.slice('snapshot:'.length).trim();
+      return snapshotName
+        ? { kind: 'snapshot' as const, snapshotName }
+        : { kind: 'invalid' as const };
+    }
+    return { kind: 'invalid' as const };
+  },
+
   async getSubmissions(params?: {
     repId?: string;
     branchIds?: string[];
+    location?: string;
     status?: string;
     startDate?: string;
     endDate?: string;
@@ -1920,6 +1968,7 @@ export const Repository = {
     sortOrder?: 'asc' | 'desc';
   }): Promise<SpiffSubmission[]> {
     if (params?.branchIds && params.branchIds.length === 0) return [];
+    const locationFilter = await this.resolveSubmissionLocationFilter(params?.location);
 
     // Determine effective date filter ranges
     const filterType = params?.dateFilterType || (params?.startDate || params?.endDate ? 'submission' : undefined);
@@ -1949,6 +1998,26 @@ export const Repository = {
       const conditions: any[] = [];
       if (params?.branchIds) {
         conditions.push(inArray(schema.spiffSubmissions.branchId, params.branchIds));
+      }
+      if (locationFilter?.kind === 'none') {
+        conditions.push(
+          isNull(schema.spiffSubmissions.branchId),
+          or(
+            isNull(schema.spiffSubmissions.snapshotBranchName),
+            eq(schema.spiffSubmissions.snapshotBranchName, '')
+          )
+        );
+      } else if (locationFilter?.kind === 'branch') {
+        conditions.push(locationFilter.branchName
+          ? or(
+              eq(schema.spiffSubmissions.branchId, locationFilter.branchId),
+              eq(schema.spiffSubmissions.snapshotBranchName, locationFilter.branchName)
+            )
+          : eq(schema.spiffSubmissions.branchId, locationFilter.branchId));
+      } else if (locationFilter?.kind === 'snapshot') {
+        conditions.push(eq(schema.spiffSubmissions.snapshotBranchName, locationFilter.snapshotName));
+      } else if (locationFilter?.kind === 'invalid') {
+        conditions.push(sql`false`);
       }
       if (params?.repId && params.repId !== 'all') {
         conditions.push(eq(schema.spiffSubmissions.repId, params.repId));
@@ -2057,6 +2126,20 @@ export const Repository = {
       const branchIds = new Set(params.branchIds);
       list = list.filter((submission) => Boolean(submission.branchId && branchIds.has(submission.branchId)));
     }
+    if (locationFilter?.kind === 'none') {
+      list = list.filter((submission) =>
+        !submission.branchId && !submission.snapshotBranchName?.trim()
+      );
+    } else if (locationFilter?.kind === 'branch') {
+      list = list.filter((submission) =>
+        submission.branchId === locationFilter.branchId ||
+        Boolean(locationFilter.branchName && submission.snapshotBranchName === locationFilter.branchName)
+      );
+    } else if (locationFilter?.kind === 'snapshot') {
+      list = list.filter((submission) => submission.snapshotBranchName === locationFilter.snapshotName);
+    } else if (locationFilter?.kind === 'invalid') {
+      list = [];
+    }
     if (params?.repId && params.repId !== 'all') {
       list = list.filter((s) => s.repId === params.repId);
     }
@@ -2123,6 +2206,7 @@ export const Repository = {
     params: {
       repId?: string;
       branchIds?: string[];
+      location?: string;
       status?: string;
       startDate?: string;
       endDate?: string;
@@ -2204,6 +2288,7 @@ export const Repository = {
       };
     }
 
+    const locationFilter = await this.resolveSubmissionLocationFilter(params.location);
     const filterType = params.dateFilterType || (params.startDate || params.endDate ? 'submission' : undefined);
     const subStart = params.submissionStartDate || (filterType === 'submission' ? params.startDate : undefined);
     const subEnd = params.submissionEndDate || (filterType === 'submission' ? params.endDate : undefined);
@@ -2216,6 +2301,26 @@ export const Repository = {
     const conditions: any[] = [];
 
     if (params.branchIds) conditions.push(inArray(schema.spiffSubmissions.branchId, params.branchIds));
+    if (locationFilter?.kind === 'none') {
+      conditions.push(
+        isNull(schema.spiffSubmissions.branchId),
+        or(
+          isNull(schema.spiffSubmissions.snapshotBranchName),
+          eq(schema.spiffSubmissions.snapshotBranchName, '')
+        )
+      );
+    } else if (locationFilter?.kind === 'branch') {
+      conditions.push(locationFilter.branchName
+        ? or(
+            eq(schema.spiffSubmissions.branchId, locationFilter.branchId),
+            eq(schema.spiffSubmissions.snapshotBranchName, locationFilter.branchName)
+          )
+        : eq(schema.spiffSubmissions.branchId, locationFilter.branchId));
+    } else if (locationFilter?.kind === 'snapshot') {
+      conditions.push(eq(schema.spiffSubmissions.snapshotBranchName, locationFilter.snapshotName));
+    } else if (locationFilter?.kind === 'invalid') {
+      conditions.push(sql`false`);
+    }
     if (params.repId && params.repId !== 'all') conditions.push(eq(schema.spiffSubmissions.repId, params.repId));
     if (params.status && params.status !== 'all') conditions.push(eq(schema.spiffSubmissions.status, params.status));
     if (subBounds.startUtc) conditions.push(gte(schema.spiffSubmissions.submittedAt, subBounds.startUtc));

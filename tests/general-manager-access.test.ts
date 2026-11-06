@@ -24,8 +24,11 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 const GM_EMAIL = 'gm.access@example.test';
 const GM_PASSWORD = 'BranchOnly123';
+const ADMIN_EMAIL = 'admin.location.access@example.test';
+const ADMIN_ID = 'admin_location_access_test';
 const OWN_BRANCH_ID = 'br_gm_access_test';
 const OUTSIDE_BRANCH_ID = 'br_gm_outside_test';
+const LOCATION_FIXTURE_PREFIX = 'SPF-ADMIN-LOCATION-';
 const PENDING_ID = 'SPF-GM-PENDING';
 const APPROVED_ID = 'SPF-GM-APPROVED';
 const OUTSIDE_ID = 'SPF-GM-OUTSIDE';
@@ -118,12 +121,26 @@ function setupFixtures() {
   memoryStore.adminUsers = memoryStore.adminUsers.filter(
     (user) => !PAYMENT_PERMISSION_ACCOUNT_IDS.includes(user.id)
   );
+  memoryStore.adminUsers = memoryStore.adminUsers.filter((user) => user.id !== ADMIN_ID);
   memoryStore.adminUsers.push({
     id: 'admin_gm_access_test',
     email: GM_EMAIL,
     name: 'Test General Manager',
     role: 'General Manager',
     passwordHash: hashPassword(GM_PASSWORD),
+    isAuthorized: true,
+    mustChangePassword: false,
+    lastLoginAt: null,
+    passwordChangedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  memoryStore.adminUsers.push({
+    id: ADMIN_ID,
+    email: ADMIN_EMAIL,
+    name: 'Location Test Administrator',
+    role: 'Administrator',
+    passwordHash: hashPassword('AdminLocation123'),
     isAuthorized: true,
     mustChangePassword: false,
     lastLoginAt: null,
@@ -147,7 +164,8 @@ function setupFixtures() {
     (submission) =>
       ![PENDING_ID, APPROVED_ID, OUTSIDE_ID, OUTSIDE_APPROVED_ID, REJECTED_ID, PAID_ID].includes(
         submission.id
-      ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(submission.id)
+      ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(submission.id) &&
+      !submission.id.startsWith(LOCATION_FIXTURE_PREFIX)
   );
   memoryStore.submissions.push(
     fixtureSubmission(PENDING_ID, OWN_BRANCH_ID),
@@ -158,7 +176,8 @@ function setupFixtures() {
     (event) =>
       ![PENDING_ID, APPROVED_ID, OUTSIDE_ID, OUTSIDE_APPROVED_ID, REJECTED_ID, PAID_ID].includes(
         event.submissionId
-      ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(event.submissionId)
+      ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(event.submissionId) &&
+      !event.submissionId.startsWith(LOCATION_FIXTURE_PREFIX)
   );
 }
 
@@ -168,6 +187,7 @@ function cleanupFixtures() {
   );
   memoryStore.contacts = memoryStore.contacts.filter((contact) => contact.id !== 'contact_gm_access_test');
   memoryStore.adminUsers = memoryStore.adminUsers.filter((user) => user.id !== 'admin_gm_access_test');
+  memoryStore.adminUsers = memoryStore.adminUsers.filter((user) => user.id !== ADMIN_ID);
   memoryStore.adminUsers = memoryStore.adminUsers.filter(
     (user) => !PAYMENT_PERMISSION_ACCOUNT_IDS.includes(user.id)
   );
@@ -177,14 +197,16 @@ function cleanupFixtures() {
       ![PENDING_ID, APPROVED_ID, OUTSIDE_ID, OUTSIDE_APPROVED_ID, REJECTED_ID, PAID_ID].includes(
         submission.id
       ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(submission.id) &&
-      !submission.id.startsWith('SPF-GM-PAGE-')
+      !submission.id.startsWith('SPF-GM-PAGE-') &&
+      !submission.id.startsWith(LOCATION_FIXTURE_PREFIX)
   );
   memoryStore.auditEvents = memoryStore.auditEvents.filter(
     (event) =>
       ![PENDING_ID, APPROVED_ID, OUTSIDE_ID, OUTSIDE_APPROVED_ID, REJECTED_ID, PAID_ID].includes(
         event.submissionId
       ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(event.submissionId) &&
-      !event.submissionId.startsWith('SPF-GM-PAGE-')
+      !event.submissionId.startsWith('SPF-GM-PAGE-') &&
+      !event.submissionId.startsWith(LOCATION_FIXTURE_PREFIX)
   );
 }
 
@@ -360,6 +382,23 @@ describe('General Manager access', () => {
     );
     assert.ok(ledger.indexOf('>Actions</th>') < ledger.indexOf('>Request ID</th>'));
     assert.match(ledger, /colSpan="16"/);
+    assert.doesNotMatch(ledger, /All Locations/);
+
+    const administratorLedger = renderToStaticMarkup(
+      React.createElement(AdminLedger, {
+        adminUser: ADMIN_EMAIL,
+        adminRole: 'Administrator',
+        onOpenDetail: () => undefined,
+        onViewPhoto: () => undefined,
+        onApproveClick: () => undefined,
+        onDenyClick: () => undefined,
+        onMarkPaid: async () => undefined,
+        reps: [],
+        refreshTrigger: 0,
+      })
+    );
+    assert.match(administratorLedger, /All Locations/);
+    assert.match(administratorLedger, /No Location/);
   });
 
   it('scopes ledger filters and details to assigned branch IDs on the server', async () => {
@@ -456,6 +495,122 @@ describe('General Manager access', () => {
       const response = await fetch(`${baseUrl}/api/admin/submissions?${query}`, { headers });
       assert.equal(response.status, 400, `Expected ${query} to be rejected`);
     }
+  });
+
+  it('filters Administrator ledger pages and CSV by saved location, including records with no location', async () => {
+    const adminHeaders = {
+      authorization: `Bearer ${createSessionToken(
+        ADMIN_EMAIL,
+        'Location Test Administrator',
+        'Administrator'
+      )}`,
+    };
+    const locationSubmissions = Array.from({ length: 12 }, (_, index) =>
+      fixtureSubmission(
+        `${LOCATION_FIXTURE_PREFIX}PAGE-${String(index + 1).padStart(2, '0')}`,
+        OWN_BRANCH_ID
+      )
+    );
+    const noLocation = {
+      ...fixtureSubmission(`${LOCATION_FIXTURE_PREFIX}NO-LOCATION`, OWN_BRANCH_ID),
+      branchId: null,
+      snapshotBranchName: null,
+    };
+    const historicalLocation = {
+      ...fixtureSubmission(`${LOCATION_FIXTURE_PREFIX}HISTORIC`, OWN_BRANCH_ID),
+      branchId: null,
+      snapshotBranchName: 'Historic Location',
+    };
+    memoryStore.submissions.push(...locationSubmissions, noLocation, historicalLocation);
+
+    const allResponse = await fetch(`${baseUrl}/api/admin/submissions?pageSize=10`, {
+      headers: adminHeaders,
+    });
+    const allBody = await allResponse.json();
+    assert.equal(allResponse.status, 200);
+    assert.ok(allBody.availableLocations.some(
+      (location: { value: string; name: string }) =>
+        location.value === `branch:${OWN_BRANCH_ID}` && location.name === 'GM Assigned Branch'
+    ));
+    assert.ok(allBody.availableLocations.some(
+      (location: { value: string; name: string }) =>
+        location.value === 'snapshot:Historic Location' && location.name === 'Historic Location'
+    ));
+
+    const branchLocation = `branch:${OWN_BRANCH_ID}`;
+    const branchPageParams = new URLSearchParams({
+      location: branchLocation,
+      page: '2',
+      pageSize: '10',
+    });
+    const branchPageResponse = await fetch(
+      `${baseUrl}/api/admin/submissions?${branchPageParams.toString()}`,
+      { headers: adminHeaders }
+    );
+    const branchPage = await branchPageResponse.json();
+    assert.equal(branchPageResponse.status, 200);
+    assert.equal(branchPage.pagination.totalCount, 14);
+    assert.equal(branchPage.pagination.totalPages, 2);
+    assert.equal(branchPage.pagination.page, 2);
+    assert.equal(branchPage.submissions.length, 4);
+    assert.ok(branchPage.submissions.every(
+      (submission: { branchId: string | null }) => submission.branchId === OWN_BRANCH_ID
+    ));
+
+    const noLocationResponse = await fetch(
+      `${baseUrl}/api/admin/submissions?location=none&page=2&pageSize=10`,
+      { headers: adminHeaders }
+    );
+    const noLocationBody = await noLocationResponse.json();
+    assert.equal(noLocationBody.pagination.totalCount, 1);
+    assert.equal(noLocationBody.pagination.page, 1);
+    assert.equal(noLocationBody.submissions.length, 1);
+    assert.equal(noLocationBody.submissions[0].id, noLocation.id);
+
+    const historicalResponse = await fetch(
+      `${baseUrl}/api/admin/submissions?${new URLSearchParams({ location: 'snapshot:Historic Location' })}`,
+      { headers: adminHeaders }
+    );
+    const historicalBody = await historicalResponse.json();
+    assert.equal(historicalBody.pagination.totalCount, 1);
+    assert.equal(historicalBody.submissions[0].id, historicalLocation.id);
+
+    const csvResponse = await fetch(
+      `${baseUrl}/api/admin/export/csv?${new URLSearchParams({
+        location: branchLocation,
+        page: '2',
+        pageSize: '10',
+      })}`,
+      { headers: adminHeaders }
+    );
+    const csv = await csvResponse.text();
+    assert.equal(csvResponse.status, 200);
+    const csvRows = csv.trim().split('\r\n');
+    assert.equal(csvRows.length, 15);
+    assert.ok(csv.includes(locationSubmissions[11].id));
+    assert.ok(csv.includes(APPROVED_ID));
+    assert.ok(!csv.includes(OUTSIDE_ID));
+    assert.ok(!csv.includes(noLocation.id));
+    assert.ok(!csv.includes(historicalLocation.id));
+
+    const gmResponse = await fetch(
+      `${baseUrl}/api/admin/submissions?location=none&pageSize=10`,
+      {
+        headers: {
+          authorization: `Bearer ${createSessionToken(
+            GM_EMAIL,
+            'Test General Manager',
+            'General Manager'
+          )}`,
+        },
+      }
+    );
+    const gmBody = await gmResponse.json();
+    assert.equal(gmBody.pagination.totalCount, 14);
+    assert.ok(gmBody.submissions.every(
+      (submission: { branchId: string | null }) => submission.branchId === OWN_BRANCH_ID
+    ));
+    assert.equal(gmBody.availableLocations, undefined);
   });
 
   it('blocks GM access to non-ledger APIs and other in-app mutations', async () => {

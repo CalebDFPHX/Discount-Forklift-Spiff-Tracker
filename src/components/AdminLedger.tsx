@@ -116,6 +116,8 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
   // Filter & Search states
   const [selectedRep, setSelectedRep] = useState<string>('all');
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [selectedLocation, setSelectedLocation] = useState<string>('all');
+  const [availableLocations, setAvailableLocations] = useState<Array<{ value: string; name: string }>>([]);
   const [dateFilterType, setDateFilterType] = useState<'submission' | 'approval' | 'sale'>('submission');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
@@ -129,6 +131,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
       const params = new URLSearchParams();
       if (selectedRep && selectedRep !== 'all') params.append('repId', selectedRep);
       if (selectedStatus && selectedStatus !== 'all') params.append('status', selectedStatus);
+      if (selectedLocation !== 'all') params.append('location', selectedLocation);
       params.append('dateFilterType', dateFilterType);
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
@@ -146,6 +149,8 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
       setTotalPages(data.pagination?.totalPages || 1);
       if (adminRole === 'General Manager') {
         setGmRepOptions(data.availableReps || []);
+      } else {
+        setAvailableLocations(data.availableLocations || []);
       }
       setSummary(data.summary || null);
     } catch (err) {
@@ -157,7 +162,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
 
   useEffect(() => {
     fetchLedger();
-  }, [selectedRep, selectedStatus, dateFilterType, startDate, endDate, searchQuery, sortBy, sortOrder, page, pageSize, refreshTrigger]);
+  }, [selectedRep, selectedStatus, selectedLocation, dateFilterType, startDate, endDate, searchQuery, sortBy, sortOrder, page, pageSize, refreshTrigger]);
 
   const handleSort = (field: 'submittedAt' | 'approvedAt' | 'rep' | 'amount') => {
     if (sortBy === field) {
@@ -172,6 +177,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
     setPage(1);
     setSelectedRep('all');
     setSelectedStatus('all');
+    setSelectedLocation('all');
     setDateFilterType('submission');
     setStartDate('');
     setEndDate('');
@@ -204,6 +210,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
     const params = new URLSearchParams();
     if (selectedRep && selectedRep !== 'all') params.append('repId', selectedRep);
     if (selectedStatus && selectedStatus !== 'all') params.append('status', selectedStatus);
+    if (selectedLocation !== 'all') params.append('location', selectedLocation);
     params.append('dateFilterType', dateFilterType);
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
@@ -339,7 +346,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
 
       {/* Filter and Search Controls Bar */}
       <div className="bg-[#2d2d2d] border border-[#444444] rounded-xl p-4 shadow-sm space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           {/* Search */}
           <div className="lg:col-span-2 relative">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
@@ -373,6 +380,28 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
               ))}
             </select>
           </div>
+
+          {!isGeneralManager && (
+            <div>
+              <select
+                aria-label="Filter by location"
+                value={selectedLocation}
+                onChange={(event) => {
+                  setSelectedLocation(event.target.value);
+                  setPage(1);
+                }}
+                className="w-full py-1.5 px-2.5 text-xs bg-[#1e1e1e] border border-[#444444] rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
+              >
+                <option value="all">All Locations</option>
+                <option value="none">No Location</option>
+                {availableLocations.map((location) => (
+                  <option key={location.value} value={location.value}>
+                    {location.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Status filter */}
           <div>
