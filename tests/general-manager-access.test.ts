@@ -15,7 +15,7 @@ const { getAdminTabsForRole } = await import('../src/lib/generalManagerAccess.js
 const { default: app } = await import('../src/server/app.js');
 const { Header } = await import('../src/components/Header.js');
 const { AdminRequestDetailModal } = await import('../src/components/AdminRequestDetailModal.js');
-const { LedgerMarkPaidAction } = await import('../src/components/AdminLedger.js');
+const { AdminLedger, LedgerMarkPaidAction } = await import('../src/components/AdminLedger.js');
 
 Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
@@ -344,6 +344,22 @@ describe('General Manager access', () => {
       })
     );
     assert.doesNotMatch(administratorPaidAction, /Mark as Paid/);
+
+    const ledger = renderToStaticMarkup(
+      React.createElement(AdminLedger, {
+        adminUser: GM_EMAIL,
+        adminRole: 'General Manager',
+        onOpenDetail: () => undefined,
+        onViewPhoto: () => undefined,
+        onApproveClick: () => undefined,
+        onDenyClick: () => undefined,
+        onMarkPaid: async () => undefined,
+        reps: [],
+        refreshTrigger: 0,
+      })
+    );
+    assert.ok(ledger.indexOf('>Actions</th>') < ledger.indexOf('>Request ID</th>'));
+    assert.match(ledger, /colSpan="16"/);
   });
 
   it('scopes ledger filters and details to assigned branch IDs on the server', async () => {

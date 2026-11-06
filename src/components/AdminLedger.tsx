@@ -476,6 +476,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-[#1e1e1e] border-b border-[#444444] text-gray-300 uppercase font-semibold text-[10px] tracking-wider select-none">
               <tr>
+                <th className="min-w-[132px] whitespace-nowrap py-3 px-3">Actions</th>
                 <th className="py-3 px-3">Request ID</th>
                 <th
                   onClick={() => handleSort('rep')}
@@ -528,14 +529,14 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
             <tbody className="divide-y divide-[#383838] text-gray-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={15} className="py-12 text-center text-gray-400">
+                  <td colSpan={16} className="py-12 text-center text-gray-400">
                     <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-[#95EA00]" />
                     <span>Loading ledger records...</span>
                   </td>
                 </tr>
               ) : submissions.length === 0 ? (
                 <tr>
-                  <td colSpan={15} className="py-12 text-center text-gray-400">
+                  <td colSpan={16} className="py-12 text-center text-gray-400">
                     <p className="font-semibold text-sm text-gray-200">No matching spiff requests found</p>
                     <p className="text-xs text-gray-400 mt-1">Try clearing filters or submit a new spiff from the rep form.</p>
                   </td>
@@ -548,6 +549,16 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
                       sub.isPotentialDuplicate ? 'bg-amber-950/20' : ''
                     }`}
                   >
+                    <td className="min-w-[132px] whitespace-nowrap py-3 px-3">
+                      {isGeneralManager && sub.status === 'Approved' && (
+                        <LedgerMarkPaidAction
+                          submission={sub}
+                          adminRole={adminRole}
+                          onMarkPaid={onMarkPaid}
+                        />
+                      )}
+                    </td>
+
                     {/* Request ID */}
                     <td className="py-3 px-3 font-mono font-bold text-white whitespace-nowrap">
                       <div className="flex items-center space-x-1">
@@ -705,20 +716,13 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
                             </button>
                           </>
                         ) : sub.status === 'Approved' && isGeneralManager ? (
-                          <>
-                            <LedgerMarkPaidAction
-                              submission={sub}
-                              adminRole={adminRole}
-                              onMarkPaid={onMarkPaid}
-                            />
-                            <button
-                              onClick={() => onOpenDetail(sub)}
-                              className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold text-gray-200 bg-[#1e1e1e] hover:bg-[#383838] border border-[#444444] rounded transition-colors"
-                            >
-                              <span>Review</span>
-                              <ChevronRight className="w-3 h-3" />
-                            </button>
-                          </>
+                          <button
+                            onClick={() => onOpenDetail(sub)}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 text-xs font-semibold text-gray-200 bg-[#1e1e1e] hover:bg-[#383838] border border-[#444444] rounded transition-colors"
+                          >
+                            <span>Review</span>
+                            <ChevronRight className="w-3 h-3" />
+                          </button>
                         ) : (
                           <button
                             onClick={() => onOpenDetail(sub)}
