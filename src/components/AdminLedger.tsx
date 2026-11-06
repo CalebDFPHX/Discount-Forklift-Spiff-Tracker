@@ -104,6 +104,10 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
   refreshTrigger,
 }) => {
   const [submissions, setSubmissions] = useState<SpiffSubmission[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<10 | 50 | 100>(10);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [gmRepOptions, setGmRepOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [summary, setSummary] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -131,10 +135,15 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
       if (searchQuery.trim()) params.append('search', searchQuery.trim());
       params.append('sortBy', sortBy);
       params.append('sortOrder', sortOrder);
+      params.append('page', String(page));
+      params.append('pageSize', String(pageSize));
 
       const res = await adminFetch(`/api/admin/submissions?${params.toString()}`);
       const data = await res.json();
       setSubmissions(data.submissions || []);
+      setPage(data.pagination?.page || page);
+      setTotalCount(data.pagination?.totalCount || 0);
+      setTotalPages(data.pagination?.totalPages || 1);
       if (adminRole === 'General Manager') {
         setGmRepOptions(data.availableReps || []);
       }
@@ -148,7 +157,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
 
   useEffect(() => {
     fetchLedger();
-  }, [selectedRep, selectedStatus, dateFilterType, startDate, endDate, searchQuery, sortBy, sortOrder, refreshTrigger]);
+  }, [selectedRep, selectedStatus, dateFilterType, startDate, endDate, searchQuery, sortBy, sortOrder, page, pageSize, refreshTrigger]);
 
   const handleSort = (field: 'submittedAt' | 'approvedAt' | 'rep' | 'amount') => {
     if (sortBy === field) {
@@ -160,6 +169,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
   };
 
   const handleResetFilters = () => {
+    setPage(1);
     setSelectedRep('all');
     setSelectedStatus('all');
     setDateFilterType('submission');
@@ -206,6 +216,16 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
 
   const isGeneralManager = adminRole === 'General Manager';
   const repOptions = isGeneralManager ? gmRepOptions : reps;
+  const firstItem = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const lastItem = Math.min(page * pageSize, totalCount);
+  const pageNumbers: Array<number | 'ellipsis-before' | 'ellipsis-after'> =
+    totalPages <= 7
+      ? Array.from({ length: totalPages }, (_, index) => index + 1)
+      : page <= 4
+        ? [1, 2, 3, 4, 5, 'ellipsis-after', totalPages]
+        : page >= totalPages - 3
+          ? [1, 'ellipsis-before', totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages]
+          : [1, 'ellipsis-before', page - 1, page, page + 1, 'ellipsis-after', totalPages];
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -327,7 +347,10 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
               type="text"
               placeholder="Search lift model, serial suffix (0042), or ID..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
               className="w-full pl-9 pr-3 py-1.5 text-xs bg-[#1e1e1e] border border-[#444444] rounded-lg text-white placeholder-gray-500 focus:bg-[#181818] focus:outline-none focus:ring-1 focus:ring-[#95EA00] focus:border-[#95EA00]"
             />
           </div>
@@ -336,7 +359,10 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
           <div>
             <select
               value={selectedRep}
-              onChange={(e) => setSelectedRep(e.target.value)}
+              onChange={(e) => {
+                setSelectedRep(e.target.value);
+                setPage(1);
+              }}
               className="w-full py-1.5 px-2.5 text-xs bg-[#1e1e1e] border border-[#444444] rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
             >
               <option value="all">All Sales Reps</option>
@@ -352,7 +378,10 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
           <div>
             <select
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
+              onChange={(e) => {
+                setSelectedStatus(e.target.value);
+                setPage(1);
+              }}
               className="w-full py-1.5 px-2.5 text-xs bg-[#1e1e1e] border border-[#444444] rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
             >
               <option value="all">All Statuses</option>
@@ -390,7 +419,10 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
             <span className="font-semibold text-gray-200">Date Filter:</span>
             <select
               value={dateFilterType}
-              onChange={(e) => setDateFilterType(e.target.value as any)}
+              onChange={(e) => {
+                setDateFilterType(e.target.value as any);
+                setPage(1);
+              }}
               className="py-1 px-2 text-xs bg-[#1e1e1e] border border-[#444444] rounded text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
             >
               <option value="submission">Submission Date Range (America/Phoenix)</option>
@@ -404,14 +436,20 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
             <input
               type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setPage(1);
+              }}
               className="py-1 px-2 text-xs bg-[#1e1e1e] border border-[#444444] text-white rounded focus:ring-1 focus:ring-[#95EA00]"
             />
             <span className="text-gray-400">To:</span>
             <input
               type="date"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setPage(1);
+              }}
               className="py-1 px-2 text-xs bg-[#1e1e1e] border border-[#444444] text-white rounded focus:ring-1 focus:ring-[#95EA00]"
             />
           </div>
@@ -421,6 +459,7 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
               onClick={() => {
                 setStartDate('');
                 setEndDate('');
+                setPage(1);
               }}
               className="text-[#95EA00] hover:underline text-[11px]"
             >
@@ -709,6 +748,64 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
               )}
             </tbody>
           </table>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#444444] px-4 py-3 text-xs">
+          <div className="flex items-center gap-2 text-gray-300">
+            <label htmlFor="spiffs-per-page" className="font-medium">Spiffs per page</label>
+            <select
+              id="spiffs-per-page"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value) as 10 | 50 | 100);
+                setPage(1);
+              }}
+              className="rounded border border-[#444444] bg-[#1e1e1e] px-2 py-1 text-white focus:outline-none focus:ring-1 focus:ring-[#95EA00]"
+            >
+              <option value={10}>10</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+            <span className="ml-2" aria-live="polite">
+              Showing {firstItem}–{lastItem} of {totalCount} spiffs
+            </span>
+          </div>
+          <nav className="flex items-center gap-1" aria-label="Ledger pagination">
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={page <= 1 || isLoading}
+              className="rounded border border-[#444444] px-2.5 py-1 text-gray-200 hover:bg-[#383838] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Previous
+            </button>
+            {pageNumbers.map((pageNumber) =>
+              typeof pageNumber === 'number' ? (
+                <button
+                  key={pageNumber}
+                  type="button"
+                  onClick={() => setPage(pageNumber)}
+                  aria-current={pageNumber === page ? 'page' : undefined}
+                  className={`min-w-8 rounded border px-2 py-1 ${
+                    pageNumber === page
+                      ? 'border-[#95EA00] bg-[#95EA00]/15 text-[#95EA00]'
+                      : 'border-[#444444] text-gray-200 hover:bg-[#383838]'
+                  }`}
+                >
+                  {pageNumber}
+                </button>
+              ) : (
+                <span key={pageNumber} className="px-1 text-gray-500" aria-hidden="true">…</span>
+              )
+            )}
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              disabled={page >= totalPages || isLoading}
+              className="rounded border border-[#444444] px-2.5 py-1 text-gray-200 hover:bg-[#383838] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next
+            </button>
+          </nav>
         </div>
       </div>
     </div>

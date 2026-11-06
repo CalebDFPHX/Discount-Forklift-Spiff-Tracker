@@ -855,10 +855,22 @@ app.get('/api/admin/submissions', requireAdmin, async (req, res) => {
       sortBy,
       sortOrder,
     } = req.query as any;
+    const rawPage = req.query.page;
+    const rawPageSize = req.query.pageSize;
+    const page = rawPage === undefined ? 1 : Number(rawPage);
+    const pageSize = rawPageSize === undefined ? 10 : Number(rawPageSize);
+    if (
+      (rawPage !== undefined &&
+        (typeof rawPage !== 'string' || !/^[1-9]\d*$/.test(rawPage) || !Number.isSafeInteger(page))) ||
+      (rawPageSize !== undefined &&
+        (typeof rawPageSize !== 'string' || !['10', '50', '100'].includes(rawPageSize)))
+    ) {
+      return res.status(400).json({ error: 'Page must be a positive integer and pageSize must be 10, 50, or 100.' });
+    }
 
     const isGeneralManager = (req as any).adminRole === GENERAL_MANAGER_ROLE;
     const branchIds = isGeneralManager ? (req as any).generalManagerBranchIds : undefined;
-    const submissions = await Repository.getSubmissions({
+    const result = await Repository.getSubmissionsPage({
       repId,
       status,
       startDate,
@@ -874,53 +886,31 @@ app.get('/api/admin/submissions', requireAdmin, async (req, res) => {
       sortBy,
       sortOrder,
       branchIds,
+      page,
+      pageSize: pageSize as 10 | 50 | 100,
     });
     const availableReps = isGeneralManager
       ? await Repository.getSubmissionRepOptions(branchIds)
       : undefined;
 
-    const pendingList = submissions.filter((s) => s.status === 'Pending');
-    const pendingCount = pendingList.length;
-    const pendingDollarsCents = pendingList.reduce((acc, s) => acc + s.snapshotAmountCents, 0);
-
-    const approvedUnpaidList = submissions.filter((s) => s.status === 'Approved');
-    const approvedUnpaidDollarsCents = approvedUnpaidList.reduce(
-      (acc, s) => acc + s.snapshotAmountCents,
-      0
-    );
-
-    const paidList = submissions.filter((s) => s.status === 'Paid');
-    const paidDollarsCents = paidList.reduce((acc, s) => acc + s.snapshotAmountCents, 0);
-
-    const repApprovalTotals: Record<string, { repName: string; totalCents: number; count: number }> =
-      {};
-    for (const sub of submissions) {
-      if (sub.status === 'Approved' || sub.status === 'Paid') {
-        const key = sub.repId;
-        if (!repApprovalTotals[key]) {
-          repApprovalTotals[key] = {
-            repName: sub.snapshotRepName,
-            totalCents: 0,
-            count: 0,
-          };
-        }
-        repApprovalTotals[key].totalCents += sub.snapshotAmountCents;
-        repApprovalTotals[key].count += 1;
-      }
-    }
-
     res.json({
-      submissions,
+      submissions: result.submissions,
       ...(availableReps ? { availableReps } : {}),
+      pagination: {
+        page: result.page,
+        pageSize,
+        totalCount: result.totalCount,
+        totalPages: Math.max(1, Math.ceil(result.totalCount / pageSize)),
+      },
       summary: {
-        pendingCount,
-        pendingDollarsFormatted: formatDollars(pendingDollarsCents),
-        pendingDollarsCents,
-        approvedUnpaidDollarsFormatted: formatDollars(approvedUnpaidDollarsCents),
-        approvedUnpaidDollarsCents,
-        paidDollarsFormatted: formatDollars(paidDollarsCents),
-        paidDollarsCents,
-        repApprovalTotals: Object.values(repApprovalTotals),
+        pendingCount: result.summary.pendingCount,
+        pendingDollarsFormatted: formatDollars(result.summary.pendingDollarsCents),
+        pendingDollarsCents: result.summary.pendingDollarsCents,
+        approvedUnpaidDollarsFormatted: formatDollars(result.summary.approvedUnpaidDollarsCents),
+        approvedUnpaidDollarsCents: result.summary.approvedUnpaidDollarsCents,
+        paidDollarsFormatted: formatDollars(result.summary.paidDollarsCents),
+        paidDollarsCents: result.summary.paidDollarsCents,
+        repApprovalTotals: result.summary.repApprovalTotals,
       },
     });
   } catch (err: any) {

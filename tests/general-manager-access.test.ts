@@ -176,13 +176,15 @@ function cleanupFixtures() {
     (submission) =>
       ![PENDING_ID, APPROVED_ID, OUTSIDE_ID, OUTSIDE_APPROVED_ID, REJECTED_ID, PAID_ID].includes(
         submission.id
-      ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(submission.id)
+      ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(submission.id) &&
+      !submission.id.startsWith('SPF-GM-PAGE-')
   );
   memoryStore.auditEvents = memoryStore.auditEvents.filter(
     (event) =>
       ![PENDING_ID, APPROVED_ID, OUTSIDE_ID, OUTSIDE_APPROVED_ID, REJECTED_ID, PAID_ID].includes(
         event.submissionId
-      ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(event.submissionId)
+      ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(event.submissionId) &&
+      !event.submissionId.startsWith('SPF-GM-PAGE-')
   );
 }
 
@@ -349,6 +351,8 @@ describe('General Manager access', () => {
     const headers = { cookie: session.cookie };
     const allResponse = await fetch(`${baseUrl}/api/admin/submissions`, { headers });
     const allBody = await allResponse.json();
+    assert.equal(allBody.pagination.pageSize, 10);
+    assert.equal(allBody.pagination.page, 1);
     assert.deepEqual(allBody.submissions.map((submission: { id: string }) => submission.id), [
       PENDING_ID,
       APPROVED_ID,
@@ -368,6 +372,74 @@ describe('General Manager access', () => {
     assert.equal(ownDetail.status, 200);
     const outsideDetail = await fetch(`${baseUrl}/api/admin/submissions/${OUTSIDE_ID}`, { headers });
     assert.equal(outsideDetail.status, 404);
+  });
+
+  it('paginates filtered, sorted results and keeps General Manager totals branch-scoped', async () => {
+    const session = await login();
+    const headers = { cookie: session.cookie };
+    const assigned = Array.from({ length: 10 }, (_, index) =>
+      fixtureSubmission(`SPF-GM-PAGE-${String(index + 1).padStart(2, '0')}`, OWN_BRANCH_ID)
+    );
+    const outside = fixtureSubmission('SPF-GM-PAGE-OUTSIDE', OUTSIDE_BRANCH_ID);
+    memoryStore.submissions.push(...assigned, outside);
+
+    const firstPageResponse = await fetch(
+      `${baseUrl}/api/admin/submissions?sortBy=rep&sortOrder=asc&page=1&pageSize=10`,
+      { headers }
+    );
+    const firstPage = await firstPageResponse.json();
+    assert.equal(firstPageResponse.status, 200);
+    assert.equal(firstPage.pagination.totalCount, 12);
+    assert.equal(firstPage.pagination.totalPages, 2);
+    assert.equal(firstPage.pagination.page, 1);
+    assert.equal(firstPage.pagination.pageSize, 10);
+    assert.equal(firstPage.submissions.length, 10);
+    assert.ok(firstPage.submissions.every((submission: { branchId: string }) => submission.branchId === OWN_BRANCH_ID));
+    const firstPageRepNames = firstPage.submissions.map(
+      (submission: { snapshotRepName: string }) => submission.snapshotRepName
+    );
+    assert.deepEqual(firstPageRepNames, [...firstPageRepNames].sort((a, b) => a.localeCompare(b)));
+
+    const lastPageResponse = await fetch(
+      `${baseUrl}/api/admin/submissions?sortBy=rep&sortOrder=asc&page=2&pageSize=10`,
+      { headers }
+    );
+    const lastPage = await lastPageResponse.json();
+    assert.equal(lastPage.pagination.page, 2);
+    assert.equal(lastPage.submissions.length, 2);
+    assert.deepEqual(
+      [...firstPage.submissions, ...lastPage.submissions].map((submission: { id: string }) => submission.id).sort(),
+      [PENDING_ID, APPROVED_ID, ...assigned.map((submission) => submission.id)].sort()
+    );
+
+    for (const size of [50, 100]) {
+      const response = await fetch(
+        `${baseUrl}/api/admin/submissions?page=1&pageSize=${size}`,
+        { headers }
+      );
+      const body = await response.json();
+      assert.equal(response.status, 200);
+      assert.equal(body.pagination.pageSize, size);
+      assert.equal(body.pagination.totalCount, 12);
+      assert.equal(body.submissions.length, 12);
+    }
+
+    const filteredResponse = await fetch(
+      `${baseUrl}/api/admin/submissions?status=Pending&search=PAGE&page=2&pageSize=10`,
+      { headers }
+    );
+    const filtered = await filteredResponse.json();
+    assert.equal(filtered.pagination.totalCount, 10);
+    assert.equal(filtered.pagination.page, 1);
+    assert.equal(filtered.submissions.length, 10);
+    assert.ok(filtered.submissions.every((submission: { branchId: string; status: string }) =>
+      submission.branchId === OWN_BRANCH_ID && submission.status === 'Pending'
+    ));
+
+    for (const query of ['page=0', 'page=1.5', 'pageSize=25', 'pageSize=10&pageSize=50']) {
+      const response = await fetch(`${baseUrl}/api/admin/submissions?${query}`, { headers });
+      assert.equal(response.status, 400, `Expected ${query} to be rejected`);
+    }
   });
 
   it('blocks GM access to non-ledger APIs and other in-app mutations', async () => {

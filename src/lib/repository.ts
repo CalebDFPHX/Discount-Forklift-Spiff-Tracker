@@ -1,5 +1,5 @@
 import { db, schema, isNeonConfigured } from '../db/index.js';
-import { eq, desc, asc, and, gte, lte, lt, like, or, sql, isNull, inArray } from 'drizzle-orm';
+import { eq, desc, asc, and, gte, lte, lt, like, or, sql, isNull, inArray, count, sum } from 'drizzle-orm';
 import {
   sendSpiffSubmissionEmail,
   sendSpiffDecisionResultEmail,
@@ -2117,6 +2117,221 @@ export const Repository = {
     });
 
     return list;
+  },
+
+  async getSubmissionsPage(
+    params: {
+      repId?: string;
+      branchIds?: string[];
+      status?: string;
+      startDate?: string;
+      endDate?: string;
+      dateFilterType?: 'submission' | 'approval' | 'sale';
+      submissionStartDate?: string;
+      submissionEndDate?: string;
+      approvalStartDate?: string;
+      approvalEndDate?: string;
+      saleStartDate?: string;
+      saleEndDate?: string;
+      search?: string;
+      sortBy?: 'submittedAt' | 'approvedAt' | 'rep' | 'amount';
+      sortOrder?: 'asc' | 'desc';
+      page: number;
+      pageSize: 10 | 50 | 100;
+    }
+  ): Promise<{
+    submissions: SpiffSubmission[];
+    totalCount: number;
+    page: number;
+    summary: {
+      pendingCount: number;
+      pendingDollarsCents: number;
+      approvedUnpaidDollarsCents: number;
+      paidDollarsCents: number;
+      repApprovalTotals: Array<{ repName: string; totalCents: number; count: number }>;
+    };
+  }> {
+    const emptyResult = {
+      submissions: [],
+      totalCount: 0,
+      page: 1,
+      summary: {
+        pendingCount: 0,
+        pendingDollarsCents: 0,
+        approvedUnpaidDollarsCents: 0,
+        paidDollarsCents: 0,
+        repApprovalTotals: [],
+      },
+    };
+    if (params.branchIds && params.branchIds.length === 0) return emptyResult;
+
+    if (!this.isLiveDatabaseConnected() || !db) {
+      const matchingSubmissions = await this.getSubmissions(params);
+      const totalCount = matchingSubmissions.length;
+      const totalPages = Math.max(1, Math.ceil(totalCount / params.pageSize));
+      const page = Math.min(params.page, totalPages);
+      const pendingList = matchingSubmissions.filter((submission) => submission.status === 'Pending');
+      const approvedOrPaid = matchingSubmissions.filter(
+        (submission) => submission.status === 'Approved' || submission.status === 'Paid'
+      );
+      const repTotals = new Map<string, { repName: string; totalCents: number; count: number }>();
+      for (const submission of approvedOrPaid) {
+        const total = repTotals.get(submission.repId) || {
+          repName: submission.snapshotRepName,
+          totalCents: 0,
+          count: 0,
+        };
+        total.totalCents += submission.snapshotAmountCents;
+        total.count += 1;
+        repTotals.set(submission.repId, total);
+      }
+
+      return {
+        submissions: matchingSubmissions.slice((page - 1) * params.pageSize, page * params.pageSize),
+        totalCount,
+        page,
+        summary: {
+          pendingCount: pendingList.length,
+          pendingDollarsCents: pendingList.reduce((total, submission) => total + submission.snapshotAmountCents, 0),
+          approvedUnpaidDollarsCents: matchingSubmissions
+            .filter((submission) => submission.status === 'Approved')
+            .reduce((total, submission) => total + submission.snapshotAmountCents, 0),
+          paidDollarsCents: matchingSubmissions
+            .filter((submission) => submission.status === 'Paid')
+            .reduce((total, submission) => total + submission.snapshotAmountCents, 0),
+          repApprovalTotals: [...repTotals.values()],
+        },
+      };
+    }
+
+    const filterType = params.dateFilterType || (params.startDate || params.endDate ? 'submission' : undefined);
+    const subStart = params.submissionStartDate || (filterType === 'submission' ? params.startDate : undefined);
+    const subEnd = params.submissionEndDate || (filterType === 'submission' ? params.endDate : undefined);
+    const apprStart = params.approvalStartDate || (filterType === 'approval' ? params.startDate : undefined);
+    const apprEnd = params.approvalEndDate || (filterType === 'approval' ? params.endDate : undefined);
+    const saleStart = params.saleStartDate || (filterType === 'sale' ? params.startDate : undefined);
+    const saleEnd = params.saleEndDate || (filterType === 'sale' ? params.endDate : undefined);
+    const subBounds = getPhoenixDateRangeUtcBounds(subStart, subEnd);
+    const apprBounds = getPhoenixDateRangeUtcBounds(apprStart, apprEnd);
+    const conditions: any[] = [];
+
+    if (params.branchIds) conditions.push(inArray(schema.spiffSubmissions.branchId, params.branchIds));
+    if (params.repId && params.repId !== 'all') conditions.push(eq(schema.spiffSubmissions.repId, params.repId));
+    if (params.status && params.status !== 'all') conditions.push(eq(schema.spiffSubmissions.status, params.status));
+    if (subBounds.startUtc) conditions.push(gte(schema.spiffSubmissions.submittedAt, subBounds.startUtc));
+    if (subBounds.endExclusiveUtc) conditions.push(lt(schema.spiffSubmissions.submittedAt, subBounds.endExclusiveUtc));
+    if (apprBounds.startUtc) conditions.push(gte(schema.spiffSubmissions.approvedAt, apprBounds.startUtc));
+    if (apprBounds.endExclusiveUtc) conditions.push(lt(schema.spiffSubmissions.approvedAt, apprBounds.endExclusiveUtc));
+    if (saleStart) conditions.push(gte(schema.spiffSubmissions.saleDate, saleStart));
+    if (saleEnd) conditions.push(lte(schema.spiffSubmissions.saleDate, saleEnd));
+    if (params.search?.trim()) {
+      const query = params.search.trim().toLowerCase();
+      const submission = schema.spiffSubmissions;
+      conditions.push(or(
+        sql`position(${query} in lower(${submission.id})) > 0`,
+        sql`position(${query} in lower(${submission.liftName})) > 0`,
+        sql`position(${query} in lower(${submission.serialSuffix})) > 0`,
+        sql`position(${query} in lower(${submission.snapshotRepName})) > 0`,
+        sql`position(${query} in lower(${submission.snapshotSpiffName})) > 0`
+      ));
+    }
+    const where = conditions.length ? and(...conditions) : undefined;
+    const [countResult, statusTotals, repTotals] = await Promise.all([
+      db.select({ total: count() }).from(schema.spiffSubmissions).where(where),
+      db.select({
+        status: schema.spiffSubmissions.status,
+        count: count(),
+        amountCents: sum(schema.spiffSubmissions.snapshotAmountCents),
+      }).from(schema.spiffSubmissions).where(where).groupBy(schema.spiffSubmissions.status),
+      db.select({
+        repId: schema.spiffSubmissions.repId,
+        repName: schema.spiffSubmissions.snapshotRepName,
+        count: count(),
+        amountCents: sum(schema.spiffSubmissions.snapshotAmountCents),
+      }).from(schema.spiffSubmissions).where(and(
+        ...(conditions.length ? conditions : []),
+        inArray(schema.spiffSubmissions.status, ['Approved', 'Paid'])
+      )).groupBy(schema.spiffSubmissions.repId, schema.spiffSubmissions.snapshotRepName),
+    ]);
+
+    const totalCount = Number(countResult[0]?.total || 0);
+    const totalPages = Math.max(1, Math.ceil(totalCount / params.pageSize));
+    const page = Math.min(params.page, totalPages);
+    const direction = params.sortOrder === 'asc' ? asc : desc;
+    const sortColumn = params.sortBy === 'rep'
+      ? schema.spiffSubmissions.snapshotRepName
+      : params.sortBy === 'amount'
+        ? schema.spiffSubmissions.snapshotAmountCents
+        : params.sortBy === 'approvedAt'
+          ? sql`COALESCE(${schema.spiffSubmissions.approvedAt}, '1970-01-01T00:00:00Z'::timestamptz)`
+          : schema.spiffSubmissions.submittedAt;
+    const rows = await db
+      .select()
+      .from(schema.spiffSubmissions)
+      .where(where)
+      .orderBy(direction(sortColumn), direction(schema.spiffSubmissions.id))
+      .limit(params.pageSize)
+      .offset((page - 1) * params.pageSize);
+
+    const submissionIds = rows.map((row) => row.id);
+    const attachmentRows = submissionIds.length
+      ? await db.select().from(schema.attachments)
+        .where(sql`${schema.attachments.submissionId} IN ${submissionIds}`)
+      : [];
+    const attachmentsBySubmission = new Map<string, Attachment[]>();
+    for (const attachment of attachmentRows) {
+      if (!attachment.submissionId) continue;
+      const attachments = attachmentsBySubmission.get(attachment.submissionId) || [];
+      attachments.push({
+        ...attachment,
+        uploadStatus: attachment.uploadStatus as any,
+        uploadedAt: attachment.uploadedAt.toISOString(),
+      });
+      attachmentsBySubmission.set(attachment.submissionId, attachments);
+    }
+
+    const submissions: SpiffSubmission[] = rows.map((row) => {
+      const attachments = attachmentsBySubmission.get(row.id) || [];
+      return {
+        ...row,
+        status: row.status as any,
+        submittedAt: row.submittedAt.toISOString(),
+        approvedAt: row.approvedAt ? row.approvedAt.toISOString() : null,
+        rejectedAt: row.rejectedAt ? row.rejectedAt.toISOString() : null,
+        paidAt: row.paidAt ? row.paidAt.toISOString() : null,
+        attachments,
+        attachment: attachments[0] || null,
+        auditEvents: [],
+      };
+    });
+    const totalsByStatus = new Map(statusTotals.map((row) => [
+      row.status,
+      { count: Number(row.count), amountCents: Number(row.amountCents || 0) },
+    ]));
+    const managerTotals = new Map<string, { repName: string; totalCents: number; count: number }>();
+    for (const row of repTotals) {
+      const total = managerTotals.get(row.repId) || {
+        repName: row.repName,
+        totalCents: 0,
+        count: 0,
+      };
+      total.totalCents += Number(row.amountCents || 0);
+      total.count += Number(row.count);
+      managerTotals.set(row.repId, total);
+    }
+
+    return {
+      submissions,
+      totalCount,
+      page,
+      summary: {
+        pendingCount: totalsByStatus.get('Pending')?.count || 0,
+        pendingDollarsCents: totalsByStatus.get('Pending')?.amountCents || 0,
+        approvedUnpaidDollarsCents: totalsByStatus.get('Approved')?.amountCents || 0,
+        paidDollarsCents: totalsByStatus.get('Paid')?.amountCents || 0,
+        repApprovalTotals: [...managerTotals.values()],
+      },
+    };
   },
 
 
