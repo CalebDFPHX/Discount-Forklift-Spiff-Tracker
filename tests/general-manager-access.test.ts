@@ -382,8 +382,10 @@ describe('General Manager access', () => {
         refreshTrigger: 0,
       })
     );
-    assert.ok(ledger.indexOf('>Actions</th>') < ledger.indexOf('>Request ID</th>'));
-    assert.match(ledger, /colSpan="16"/);
+    assert.match(ledger, /Request \/ Payment/);
+    assert.match(ledger, /colSpan="8"/);
+    assert.match(ledger, /lg:table-fixed/);
+    assert.match(ledger, /lg:table-cell/);
     assert.doesNotMatch(ledger, /All Locations/);
 
     const administratorLedger = renderToStaticMarkup(
