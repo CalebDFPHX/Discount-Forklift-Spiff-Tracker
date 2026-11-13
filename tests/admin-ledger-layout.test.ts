@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { SpiffSubmission } from '../src/lib/repository.js';
-import { LedgerSubmissionRow } from '../src/components/AdminLedger.js';
+import type { SalesRep, SpiffSubmission } from '../src/lib/repository.js';
+import { AdminLedger, LedgerSubmissionRow } from '../src/components/AdminLedger.js';
 
 const longName = 'Alexandria-Cassandra Sales Representative With A Long Name';
 const longEmail = 'alexandria.cassandra.sales.representative@example.test';
@@ -63,6 +63,31 @@ function renderRow(adminRole = 'General Manager') {
 }
 
 describe('responsive ledger layout', () => {
+  it('sorts sales rep filter options alphabetically with All Sales Reps first', () => {
+    const reps: SalesRep[] = [
+      { id: 'rep-zoe', name: 'Zoe', isActive: true, displayOrder: 1, createdAt: '', updatedAt: '' },
+      { id: 'rep-bravo', name: 'bRavo', isActive: true, displayOrder: 2, createdAt: '', updatedAt: '' },
+      { id: 'rep-alpha', name: 'alpha', isActive: true, displayOrder: 3, createdAt: '', updatedAt: '' },
+    ];
+    const markup = renderToStaticMarkup(
+      React.createElement(AdminLedger, {
+        adminUser: 'admin@example.test',
+        adminRole: 'Administrator',
+        onOpenDetail: () => undefined,
+        onViewPhoto: () => undefined,
+        onApproveClick: () => undefined,
+        onDenyClick: () => undefined,
+        onMarkPaid: async () => undefined,
+        reps,
+      })
+    );
+    const repFilter = markup.match(/<select\b[^>]*>[\s\S]*?<\/select>/)?.[0];
+    assert.ok(repFilter, 'Expected the ledger rep filter to render');
+    const options = Array.from(repFilter.matchAll(/<option\b[^>]*>(.*?)<\/option>/g), (match) => match[1]);
+
+    assert.deepEqual(options, ['All Sales Reps', 'alpha', 'bRavo', 'Zoe']);
+  });
+
   it('keeps every submission field visible in wrapped desktop columns and labeled mobile cards', () => {
     const markup = renderRow();
 

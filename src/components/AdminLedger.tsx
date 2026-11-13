@@ -471,7 +471,9 @@ export const AdminLedger: React.FC<AdminLedgerProps> = ({
   };
 
   const isGeneralManager = adminRole === 'General Manager';
-  const repOptions = isGeneralManager ? gmRepOptions : reps;
+  const repOptions = [...(isGeneralManager ? gmRepOptions : reps)].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  );
   const firstItem = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
   const lastItem = Math.min(page * pageSize, totalCount);
   const pageNumbers: Array<number | 'ellipsis-before' | 'ellipsis-after'> =
