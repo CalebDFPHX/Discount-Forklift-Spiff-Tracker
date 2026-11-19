@@ -8,10 +8,12 @@ process.env.AUTH_SECRET = 'unit-test-only-general-manager-secret';
 process.env.DATABASE_URL = '';
 
 const {
-  MISSING_BRANCH_REPAIR_SUBMISSION_ID,
   Repository,
   memoryStore,
 } = await import('../src/lib/repository.js');
+const { MISSING_BRANCH_REPAIR_SUBMISSION_ID } = await import(
+  '../src/lib/submissionBranchRepair.js'
+);
 const { hashPassword } = await import('../src/lib/auth.js');
 const { createEmailDecisionToken } = await import('../src/lib/emailDecisionTokens.js');
 const { createCsrfToken, createSessionToken } = await import('../src/lib/sessionAuth.js');

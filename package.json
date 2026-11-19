@@ -15,6 +15,7 @@
     "test:email-amounts": "tsx --test tests/email-amounts.test.ts",
     "test:photos": "tsx --test tests/photo-submission.test.ts",
     "test:gm-access": "tsx --test tests/general-manager-access.test.ts",
+    "test:client-build": "tsx --test tests/client-build.test.ts",
     "test:weekly-report": "tsx --test tests/weekly-spiff-report.test.ts tests/weekly-spiff-report-admin.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

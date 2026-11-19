@@ -13,7 +13,7 @@ import { AdminSettings } from './components/AdminSettings.js';
 import { AdminRequestDetailModal } from './components/AdminRequestDetailModal.js';
 import { DecisionConfirmModal } from './components/DecisionConfirmModal.js';
 import { PhotoPreviewModal } from './components/PhotoPreviewModal.js';
-import {
+import type {
   SpiffSubmission,
   SalesRep,
   Spiff,
@@ -21,8 +21,8 @@ import {
   NotificationContact,
   Branch,
   PaidReceiptNotificationResult,
-  MISSING_BRANCH_REPAIR_SUBMISSION_ID,
-} from './lib/repository.js'
+} from './lib/repository.js';
+import { MISSING_BRANCH_REPAIR_SUBMISSION_ID } from './lib/submissionBranchRepair.js';
 import { adminFetch, setAdminSession, clearAdminSession, getAdminSession } from './lib/api.js';
 import { getSubmissionPhotos } from './lib/photoAttachments.js';
 import { FileText, Award, Users, Settings as SettingsIcon, Contact, Sparkles, Building2 } from 'lucide-react';

@@ -2,7 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { MISSING_BRANCH_REPAIR_SUBMISSION_ID, Repository } from '../lib/repository.js';
+import { Repository } from '../lib/repository.js';
+import { MISSING_BRANCH_REPAIR_SUBMISSION_ID } from '../lib/submissionBranchRepair.js';
 import { resolveCanonicalAppUrl } from '../lib/appUrl.js';
 import {
   validateImageMagicBytes,

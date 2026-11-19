@@ -1,4 +1,5 @@
 import { db, schema, isNeonConfigured } from '../db/index.js';
+import { MISSING_BRANCH_REPAIR_SUBMISSION_ID } from './submissionBranchRepair.js';
 import { eq, desc, asc, and, gte, lte, lt, like, or, sql, isNull, isNotNull, inArray, count, sum } from 'drizzle-orm';
 import {
   sendSpiffSubmissionEmail,
@@ -597,8 +598,6 @@ export function isMemoryModeAllowed(): boolean {
   }
   return !isNeonConfigured && (process.env.ALLOW_MEMORY_STORE === 'true' || process.env.NODE_ENV === 'test' || !process.env.NODE_ENV);
 }
-
-export const MISSING_BRANCH_REPAIR_SUBMISSION_ID = 'SPF-2026-7UZ3FQ';
 
 export const Repository = {
   isLiveDatabaseConnected(): boolean {

@@ -13,13 +13,13 @@ import {
   Loader2,
   Mail,
 } from 'lucide-react';
-import {
+import type {
   Attachment,
   Branch,
-  MISSING_BRANCH_REPAIR_SUBMISSION_ID,
   PaidReceiptNotificationResult,
   SpiffSubmission,
 } from '../lib/repository';
+import { MISSING_BRANCH_REPAIR_SUBMISSION_ID } from '../lib/submissionBranchRepair.js';
 import { formatDollars, parseDollarsToCents, validateSerialSuffix } from '../lib/formatters';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone';
 import { getSubmissionPhotos } from '../lib/photoAttachments';
