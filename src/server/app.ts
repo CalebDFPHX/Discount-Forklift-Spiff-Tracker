@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { Repository } from '../lib/repository.js';
+import { MISSING_BRANCH_REPAIR_SUBMISSION_ID, Repository } from '../lib/repository.js';
 import { resolveCanonicalAppUrl } from '../lib/appUrl.js';
 import {
   validateImageMagicBytes,
@@ -30,10 +30,13 @@ import { createPersistentRateLimiter } from '../lib/rateLimiter.js';
 import { isNeonConfigured } from '../db/index.js';
 import {
   emailProvider,
+  emailConfigurationError,
   hasGmailConfiguration,
+  hasMicrosoftGraphSettings,
   hasOutlookConfiguration,
   isEmailConfigured,
   isGmailConfigured,
+  isMicrosoftGraphConfigured,
   isOutlookConfigured,
   isResendConfigured,
   sendRenderedEmail,
@@ -832,9 +835,12 @@ app.get('/api/admin/status', requireAdmin, async (req, res) => {
     isNeonConfigured: Repository.isLiveDatabaseConnected(),
     isResendConfigured,
     isGmailConfigured,
+    isMicrosoftGraphConfigured,
+    hasMicrosoftGraphSettings,
     isOutlookConfigured,
     isEmailConfigured,
     emailProvider,
+    emailConfigurationError,
     hasGmailConfiguration,
     hasOutlookConfiguration,
     isBlobConfigured,
@@ -1045,6 +1051,32 @@ app.post('/api/admin/submissions/:id/correct', requireAdmin, async (req, res) =>
     res.status(400).json({ error: err.message });
   }
 });
+
+app.post(
+  '/api/admin/submissions/:id/repair-missing-branch',
+  requireAdmin,
+  requireAdministrator,
+  async (req, res) => {
+    if (req.params.id !== MISSING_BRANCH_REPAIR_SUBMISSION_ID) {
+      return res.status(404).json({ error: 'Submission not found.' });
+    }
+
+    try {
+      const branchId = typeof req.body?.branchId === 'string' ? req.body.branchId : '';
+      const explanation = typeof req.body?.explanation === 'string' ? req.body.explanation : '';
+      const submission = await Repository.repairMissingSubmissionBranch(
+        req.params.id,
+        branchId,
+        (req as any).adminUser,
+        explanation
+      );
+      return res.json({ success: true, submission });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unable to repair the missing branch.';
+      return res.status(400).json({ error: message });
+    }
+  }
+);
 
 app.post(
   '/api/admin/submissions/:id/reopen-denied',

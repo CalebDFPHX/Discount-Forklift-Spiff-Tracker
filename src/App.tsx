@@ -21,6 +21,7 @@ import {
   NotificationContact,
   Branch,
   PaidReceiptNotificationResult,
+  MISSING_BRANCH_REPAIR_SUBMISSION_ID,
 } from './lib/repository.js'
 import { adminFetch, setAdminSession, clearAdminSession, getAdminSession } from './lib/api.js';
 import { getSubmissionPhotos } from './lib/photoAttachments.js';
@@ -64,6 +65,14 @@ export default function App() {
   const [isNeonConnected, setIsNeonConnected] = useState(false);
   const [ledgerRefreshTrigger, setLedgerRefreshTrigger] = useState(0);
   const [initialSetupToken, setInitialSetupToken] = useState<string | null>(null);
+  const repairBranchOptions = (() => {
+    if (activeDetailSubmission?.id !== MISSING_BRANCH_REPAIR_SUBMISSION_ID) return [];
+    const rep = reps.find((candidate) => candidate.id === activeDetailSubmission.repId);
+    if (rep?.name !== 'Jeff Haworth' || !rep.branch?.trim()) return [];
+    return branches.filter(
+      (branch) => branch.isActive && branch.name.trim() === rep.branch?.trim()
+    );
+  })();
 
   // Check URL for setup/reset tokens on load
   useEffect(() => {
@@ -287,6 +296,26 @@ export default function App() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
+    setActiveDetailSubmission(data.submission);
+    setLedgerRefreshTrigger((prev) => prev + 1);
+    refreshConfig();
+  };
+
+  const handleRepairMissingBranch = async (
+    id: string,
+    branchId: string,
+    explanation: string
+  ) => {
+    const res = await adminFetch(
+      `/api/admin/submissions/${encodeURIComponent(id)}/repair-missing-branch`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branchId, explanation }),
+      }
+    );
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to repair the missing branch.');
     setActiveDetailSubmission(data.submission);
     setLedgerRefreshTrigger((prev) => prev + 1);
     refreshConfig();
@@ -586,6 +615,9 @@ export default function App() {
           onOpenDecisionModal={handleOpenDecision}
           onMarkPaid={handleMarkPaidRequest}
           onCorrect={handleCorrectRequest}
+          canRepairMissingBranch={adminRole === 'Administrator'}
+          repairBranchOptions={repairBranchOptions}
+          onRepairMissingBranch={handleRepairMissingBranch}
           canReopenDenied={adminRole === 'Administrator'}
           onReopenDenied={handleReopenDeniedRequest}
           onViewPhoto={handleOpenPhoto}

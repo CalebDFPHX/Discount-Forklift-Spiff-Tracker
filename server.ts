@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { app, ensureInitialAdminFromEnv } from './src/server/app';
 import { isNeonConfigured } from './src/db/index';
-import { isResendConfigured } from './src/lib/resend';
+import { emailConfigurationError, emailProvider, isEmailConfigured } from './src/lib/resend';
 import { isBlobConfigured } from './src/lib/blob';
 import { resolveCanonicalAppUrl } from './src/lib/appUrl';
 
@@ -37,7 +37,10 @@ async function startServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`[Discount Forklift Spiff Tracker] Server running on port ${PORT}`);
     console.log(`[Database] Neon PostgreSQL configured: ${isNeonConfigured}`);
-    console.log(`[Email] Resend configured: ${isResendConfigured}`);
+    console.log(`[Email] Provider: ${emailProvider || 'not configured'}; configured: ${isEmailConfigured}`);
+    if (emailConfigurationError) {
+      console.error(`[Email] Configuration error: ${emailConfigurationError}`);
+    }
     console.log(`[Storage] Vercel Blob configured: ${isBlobConfigured}`);
     console.log(`[App URL] Canonical: ${CANONICAL_APP_URL}`);
   });

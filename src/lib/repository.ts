@@ -598,6 +598,8 @@ export function isMemoryModeAllowed(): boolean {
   return !isNeonConfigured && (process.env.ALLOW_MEMORY_STORE === 'true' || process.env.NODE_ENV === 'test' || !process.env.NODE_ENV);
 }
 
+export const MISSING_BRANCH_REPAIR_SUBMISSION_ID = 'SPF-2026-7UZ3FQ';
+
 export const Repository = {
   isLiveDatabaseConnected(): boolean {
     return isNeonConfigured && db !== null;
@@ -3395,6 +3397,146 @@ export const Repository = {
     }
 
     return sub;
+  },
+
+  async repairMissingSubmissionBranch(
+    id: string,
+    branchId: string,
+    adminUser: string,
+    explanation: string
+  ): Promise<SpiffSubmission> {
+    if (id !== MISSING_BRANCH_REPAIR_SUBMISSION_ID) {
+      throw new Error('This branch repair is only available for the designated submission.');
+    }
+
+    const cleanBranchId = typeof branchId === 'string' ? branchId.trim() : '';
+    const cleanExplanation = typeof explanation === 'string' ? explanation.trim() : '';
+    if (!cleanBranchId) throw new Error('An active branch must be selected.');
+    if (!cleanExplanation) throw new Error('A detailed explanation is required for this correction.');
+    if (cleanExplanation.length > 1000) throw new Error('The correction explanation must be 1000 characters or fewer.');
+
+    const timestamp = new Date();
+    const audit: AuditEvent = {
+      id: `aud_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      submissionId: id,
+      action: 'correction',
+      performedBy: adminUser,
+      fieldChanged: 'branch_id,snapshot_branch_name',
+      oldValue: JSON.stringify({ branch_id: null, snapshot_branch_name: null }),
+      explanation: cleanExplanation,
+      timestamp: timestamp.toISOString(),
+    };
+
+    if (this.isLiveDatabaseConnected() && db) {
+      await db.transaction(async (tx) => {
+        const [submission] = await tx
+          .select()
+          .from(schema.spiffSubmissions)
+          .where(eq(schema.spiffSubmissions.id, id))
+          .limit(1);
+        if (!submission) throw new Error('Submission not found.');
+        if (submission.status !== 'Paid') {
+          throw new Error('This repair is only available while the designated request remains Paid.');
+        }
+        if (submission.branchId !== null || submission.snapshotBranchName !== null) {
+          throw new Error('This repair is only available while both branch fields are NULL.');
+        }
+
+        const [rep] = await tx
+          .select()
+          .from(schema.salesReps)
+          .where(eq(schema.salesReps.id, submission.repId))
+          .limit(1);
+        if (
+          !rep ||
+          rep.name.trim() !== 'Jeff Haworth' ||
+          submission.snapshotRepName !== 'Jeff Haworth' ||
+          !rep.branch?.trim()
+        ) {
+          throw new Error('The submission is no longer associated with Jeff Haworth and a current branch assignment.');
+        }
+
+        const [branch] = await tx
+          .select()
+          .from(schema.branches)
+          .where(eq(schema.branches.id, cleanBranchId))
+          .limit(1);
+        if (!branch?.isActive || branch.name.trim() !== rep.branch.trim()) {
+          throw new Error("The selected branch must be active and match Jeff Haworth's current branch assignment.");
+        }
+
+        const [updated] = await tx
+          .update(schema.spiffSubmissions)
+          .set({ branchId: branch.id, snapshotBranchName: branch.name })
+          .where(
+            and(
+              eq(schema.spiffSubmissions.id, id),
+              isNull(schema.spiffSubmissions.branchId),
+              isNull(schema.spiffSubmissions.snapshotBranchName)
+            )
+          )
+          .returning({ id: schema.spiffSubmissions.id });
+        if (!updated) {
+          throw new Error('This repair is only available while both branch fields are NULL.');
+        }
+
+        await tx.insert(schema.auditEvents).values({
+          ...audit,
+          newValue: JSON.stringify({
+            branch_id: branch.id,
+            snapshot_branch_name: branch.name,
+          }),
+          timestamp,
+        });
+      });
+
+      const repaired = await this.getSubmissionById(id);
+      if (!repaired) throw new Error('The repaired submission could not be reloaded.');
+      return repaired;
+    }
+
+    if (!isMemoryModeAllowed()) {
+      throw new Error('The database is required to repair this submission.');
+    }
+
+    const submission = memoryStore.submissions.find((candidate) => candidate.id === id);
+    if (!submission) throw new Error('Submission not found.');
+    if (submission.status !== 'Paid') {
+      throw new Error('This repair is only available while the designated request remains Paid.');
+    }
+    if (submission.branchId !== null || submission.snapshotBranchName !== null) {
+      throw new Error('This repair is only available while both branch fields are NULL.');
+    }
+
+    const rep = memoryStore.reps.find((candidate) => candidate.id === submission.repId);
+    if (
+      !rep ||
+      rep.name.trim() !== 'Jeff Haworth' ||
+      submission.snapshotRepName !== 'Jeff Haworth' ||
+      !rep.branch?.trim()
+    ) {
+      throw new Error('The submission is no longer associated with Jeff Haworth and a current branch assignment.');
+    }
+
+    const branch = memoryStore.branches.find((candidate) => candidate.id === cleanBranchId);
+    if (!branch?.isActive || branch.name.trim() !== rep.branch.trim()) {
+      throw new Error("The selected branch must be active and match Jeff Haworth's current branch assignment.");
+    }
+
+    submission.branchId = branch.id;
+    submission.snapshotBranchName = branch.name;
+    memoryStore.auditEvents.unshift({
+      ...audit,
+      newValue: JSON.stringify({
+        branch_id: branch.id,
+        snapshot_branch_name: branch.name,
+      }),
+    });
+
+    return {
+      ...submission,
+      auditEvents: memoryStore.auditEvents.filter((event) => event.submissionId === id),
+    };
   },
 
   async reopenDeniedSubmission(

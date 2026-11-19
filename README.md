@@ -14,7 +14,7 @@ Sales representatives submit cash spiff requests after closing a forklift sale. 
 - **Manager Authentication**: Administrators, Approving Managers, and General Managers use secure email-and-password authentication with cryptographic salted scrypt hashing, expiring single-use invite and reset tokens, HttpOnly SameSite session cookies, and explicit database allowlist enforcement in Neon. No Google OAuth or client-side credentials.
 - **Administrative Deletion**: Administrators can permanently delete ledger submissions and remove unused configuration records. Submission deletion removes its photo, audit history, and email jobs; sales reps and spiff programs with submission history must be deactivated instead of deleted.
 - **Shared Rate Limiting**: Multi-instance persistent rate limiting backed by Neon (`rate_limits` table) with trusted platform IP detection.
-- **Email Notifications**: [Resend](https://resend.com) transactional emails with database job queues and retry idempotency.
+- **Email Notifications**: Microsoft Graph app-only email delivery with database job queues and retry idempotency. SMTP and Resend remain available through the existing provider selection when Graph is not selected.
 - **Photo Storage**: Private [Vercel Blob](https://vercel.com/docs/storage/vercel-blob) storage accessed strictly via administrator-authenticated server endpoints with magic-byte verification.
 - **Timezone**: All ledger timestamps, daily filters (Submission Date, Approval Date, Sale Date), and exported records are formatted in `America/Phoenix` (MST, UTC-7).
 - **Deployment Target**: Vercel / serverless runtime connected to GitHub.
@@ -102,7 +102,7 @@ When connecting a production Neon database to Vercel or cloud hosting:
 2. **Self-Service Password Reset**:
    - On the login screen, click **Forgot password?** and submit your administrator email.
    - To prevent account enumeration attacks, the system returns an identical confirmation message regardless of whether the email exists.
-   - If an active administrator account exists, an expiring single-use reset link (valid for 1 hour) is dispatched via Resend email.
+   - If an active administrator account exists, an expiring single-use reset link (valid for 1 hour) is dispatched through the configured email provider.
    - Consuming the reset token atomically updates the password hash, records `password_changed_at`, and invalidates all prior sessions.
 3. **Session Revocation & Deactivation**:
    - Any administrator account toggled to Deactivated immediately loses all dashboard access on their next request.
@@ -112,7 +112,30 @@ When connecting a production Neon database to Vercel or cloud hosting:
 
 ### 5. Configuring Email Notifications
 
-The app can send notifications through Gmail SMTP, Outlook SMTP, or Resend. Gmail is selected when both `GMAIL_USER` and `GMAIL_APP_PASSWORD` are set; otherwise, Outlook is selected when both `OUTLOOK_USER` and `OUTLOOK_PASSWORD` are set; Resend is used when neither SMTP account is configured and `RESEND_API_KEY` is configured. Every provider uses the display name **Discount Forklift Spiff Tracker** and keeps its configured, verified, or authorized sender address.
+Production email delivery uses Microsoft Graph app-only authentication and sends through **Discount Forklift Spiff Tracker <admin@discountforkliftphoenix.com>**. The server-side provider routes submission alerts, approval/denial results, General Manager paid-receipt notices, weekly Accounting reports with CSV attachments, administrator test messages, and account invitation/reset messages through the same provider. A Graph `202 Accepted` response means Microsoft Graph accepted the request; it does not confirm final mailbox delivery. Existing queue idempotency, dispatch logs, and retry handling remain in place. Graph `sendMail` does not provide provider-level idempotency, so an ambiguous transport failure after Graph accepts a request can still result in a duplicate on retry.
+
+#### Microsoft Graph (Production)
+1. In Microsoft Entra ID, register an application in the tenant that owns `admin@discountforkliftphoenix.com`.
+2. Grant the application the Microsoft Graph **Application** permission `Mail.Send` and grant tenant admin consent. Ensure the application is authorized to send from the specified mailbox.
+3. In Vercel **Settings > Environment Variables**, set the following for the **Production** environment:
+   ```env
+   EMAIL_PROVIDER="microsoft_graph"
+   GRAPH_TENANT_ID="00000000-0000-0000-0000-000000000000"
+   GRAPH_CLIENT_ID="00000000-0000-0000-0000-000000000000"
+   GRAPH_AUTH_MODE="client_secret"
+   GRAPH_CLIENT_SECRET="your-Entra-application-client-secret"
+   ```
+   `GRAPH_AUTH_MODE` must be either `client_secret` or `certificate`. For certificate mode, replace `GRAPH_AUTH_MODE` and `GRAPH_CLIENT_SECRET` with:
+   ```env
+   GRAPH_AUTH_MODE="certificate"
+   GRAPH_CERTIFICATE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...private key...\n-----END PRIVATE KEY-----"
+   GRAPH_CERTIFICATE_THUMBPRINT="40-character-SHA-1-hex-thumbprint"
+   ```
+   The certificate's public key must also be registered on the Entra application. The thumbprint can alternatively be supplied in Base64url format. Encrypted PEM keys are not supported.
+4. Keep all credentials in server-side Vercel environment variables (or the ignored local `.env` file); never use `VITE_` variables, commit credentials, or expose tokens to browser code. Do not configure both authentication modes together.
+5. After IT has configured the Entra application and Vercel Production variables, redeploy the application and verify **Admin Settings > Infrastructure** reports **Microsoft Graph Active**. Use the existing administrator test-email workflow for a controlled delivery check.
+
+`EMAIL_PROVIDER="microsoft_graph"` explicitly requires valid Graph settings. Any Graph settings also select Graph and incomplete/invalid settings fail clearly rather than falling through to SMTP or Resend. If all Graph variables and `EMAIL_PROVIDER` are omitted, the previous selection remains: Gmail is selected when both `GMAIL_USER` and `GMAIL_APP_PASSWORD` are set; otherwise Outlook is selected when both `OUTLOOK_USER` and `OUTLOOK_PASSWORD` are set; otherwise Resend is selected when `RESEND_API_KEY` is configured. Delivery errors do not trigger automatic provider failover. Legacy SMTP/Resend sender addresses remain as previously configured; Graph always uses the specified mailbox and display name.
 
 #### Gmail SMTP (no sending domain required)
 1. Use the Gmail account that should send app notifications and enable [2-Step Verification](https://myaccount.google.com/signinoptions/two-step-verification).
@@ -138,7 +161,7 @@ For local development, use the same two variables in the ignored local `.env` fi
    The sender address defaults to `OUTLOOK_USER`. To use a different address, set `OUTLOOK_FROM_EMAIL` only to an address authorized for that mailbox's Send As permission. Do not use the display name setting to disguise the sender address.
 3. The default SMTP host is `smtp-mail.outlook.com` on port 587 with TLS. For Microsoft 365, set `OUTLOOK_SMTP_HOST="smtp.office365.com"` if required by your tenant.
 
-The sender header for Gmail uses `GMAIL_USER`; Outlook uses `OUTLOOK_FROM_EMAIL` (or `OUTLOOK_USER` when unset); and Resend uses `RESEND_FROM_EMAIL` (defaulting to `notifications@discountforkliftphoenix.com`). The Resend address must be verified by Resend.
+The sender header for legacy Gmail uses `GMAIL_USER`; Outlook uses `OUTLOOK_FROM_EMAIL` (or `OUTLOOK_USER` when unset); and Resend uses `RESEND_FROM_EMAIL` (defaulting to `notifications@discountforkliftphoenix.com`). The Resend address must be verified by Resend.
 
 Notification recipient menus are populated from active contacts configured in Neon. If no active contacts are configured, add them in **Notifications & Contacts**; the app will not substitute sample or fallback recipients.
 
@@ -151,6 +174,8 @@ The script deactivates only contacts matching the four retired addresses, remove
 New-submission notification emails include **Approve** and **Deny** links for the routed approving manager. The links are signed with `AUTH_SECRET`, expire after 7 days, and work only while the request is pending; the first confirmed decision wins. Opening either link displays a confirmation page and does not change request status or send a result email. The action is recorded only after an explicit POST confirmation, and denial requires a reason. The linked contact must still be active and have the exact **Approving Manager** role. Treat these links as sensitive and do not forward them.
 
 Administrators can reopen an incorrectly denied request as **Pending** from its detail view. Reopening requires a written explanation, preserves the original denial event in audit history, and sends no email. A later approval is a separate action and follows the normal approval and notification flow.
+
+For the one-time repair of `SPF-2026-7UZ3FQ`, an Administrator can assign a branch only while both saved branch fields are NULL and the request remains Paid. The selected active branch must match Jeff Haworth’s current assignment. The confirmation requires an explanation and records the previous and new branch values in audit history without changing approval or payment details or sending email. This repair uses the existing audit schema and requires no migration.
 
 The **Spiff Approved Result** goes to the submitting sales rep. Their assigned active General Manager(s) receive a separate **Spiff Approved Paid Receipt** with a **Mark as Paid** link; it requires no sign-in, expires after 7 days, and only works while the request is approved. Opening the link only displays a confirmation page; payment is recorded after an explicit POST confirmation. The linked contact must still be active and have the exact **General Manager** role. Anyone with access to that email link can confirm payment, so keep it private. The **Spiff Denied Result** continues to go to the rep and selected recipients.
 
@@ -211,14 +236,21 @@ In your Vercel project's **Settings > Environment Variables**, add the following
 | `AUTH_SECRET` | 32-byte secret generated via `openssl rand -base64 32` |
 | `AUTH_TRUST_HOST` | `true` |
 | `INITIAL_ADMIN_EMAIL` | `caleb@discountforkliftphoenix.com` |
-| `GMAIL_USER` | Gmail address used to send notifications (optional; use with `GMAIL_APP_PASSWORD`) |
-| `GMAIL_APP_PASSWORD` | Google App Password (optional; takes precedence over Outlook and Resend when both Gmail variables are set) |
-| `OUTLOOK_USER` | Outlook SMTP login and default sender address (optional; use with `OUTLOOK_PASSWORD`) |
-| `OUTLOOK_PASSWORD` | Outlook mailbox or app password (optional; used after Gmail and before Resend) |
-| `OUTLOOK_FROM_EMAIL` | Optional Outlook sender address authorized for the mailbox |
-| `OUTLOOK_SMTP_HOST` | Optional Outlook SMTP host (defaults to `smtp-mail.outlook.com`) |
-| `RESEND_API_KEY` | Resend API key (`re_...`; optional alternative to Gmail or Outlook SMTP) |
-| `RESEND_FROM_EMAIL` | Verified sender (when using Resend) |
+| `EMAIL_PROVIDER` | Set to `microsoft_graph` to explicitly require Graph rather than legacy providers |
+| `GRAPH_TENANT_ID` | Microsoft Entra tenant GUID (server-only) |
+| `GRAPH_CLIENT_ID` | Entra app registration client GUID (server-only) |
+| `GRAPH_AUTH_MODE` | Required authentication mode: `client_secret` or `certificate` |
+| `GRAPH_CLIENT_SECRET` | Entra application client secret for `client_secret` mode (server-only) |
+| `GRAPH_CERTIFICATE_PRIVATE_KEY` | Unencrypted RSA PEM private key for `certificate` mode (server-only) |
+| `GRAPH_CERTIFICATE_THUMBPRINT` | Certificate SHA-1 thumbprint in 40-character hex or Base64url format |
+| `GMAIL_USER` | Legacy Gmail address (optional; use with `GMAIL_APP_PASSWORD`) |
+| `GMAIL_APP_PASSWORD` | Legacy Google App Password |
+| `OUTLOOK_USER` | Legacy Outlook SMTP login and default sender address |
+| `OUTLOOK_PASSWORD` | Legacy Outlook mailbox or app password |
+| `OUTLOOK_FROM_EMAIL` | Optional legacy Outlook sender authorized for the mailbox |
+| `OUTLOOK_SMTP_HOST` | Optional legacy Outlook SMTP host (defaults to `smtp-mail.outlook.com`) |
+| `RESEND_API_KEY` | Legacy Resend API key (`re_...`) |
+| `RESEND_FROM_EMAIL` | Legacy verified Resend sender |
 | `NOTIFICATION_RECIPIENT_EMAIL` | Office manager email receiving alerts |
 | `BLOB_READ_WRITE_TOKEN` | Generated automatically by Vercel Blob |
 | `APP_URL` | In Production, set to the verified stable Production domain from Vercel **Settings > Domains** (not a deployment-specific `*.vercel.app` URL). If unset, the app uses Vercel's `VERCEL_PROJECT_PRODUCTION_URL`. |

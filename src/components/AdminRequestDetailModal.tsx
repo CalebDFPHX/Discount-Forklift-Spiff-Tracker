@@ -13,7 +13,13 @@ import {
   Loader2,
   Mail,
 } from 'lucide-react';
-import { Attachment, PaidReceiptNotificationResult, SpiffSubmission } from '../lib/repository';
+import {
+  Attachment,
+  Branch,
+  MISSING_BRANCH_REPAIR_SUBMISSION_ID,
+  PaidReceiptNotificationResult,
+  SpiffSubmission,
+} from '../lib/repository';
 import { formatDollars, parseDollarsToCents, validateSerialSuffix } from '../lib/formatters';
 import { formatPhoenixDate, formatPhoenixDateTime } from '../lib/timezone';
 import { getSubmissionPhotos } from '../lib/photoAttachments';
@@ -27,6 +33,9 @@ interface AdminRequestDetailModalProps {
   onOpenDecisionModal: (submission: SpiffSubmission, decision: 'approve' | 'deny') => void;
   onMarkPaid: (id: string) => Promise<void>;
   onCorrect: (id: string, updates: any, explanation: string) => Promise<void>;
+  canRepairMissingBranch: boolean;
+  repairBranchOptions: Branch[];
+  onRepairMissingBranch: (id: string, branchId: string, explanation: string) => Promise<void>;
   canReopenDenied: boolean;
   onReopenDenied: (id: string, explanation: string) => Promise<void>;
   onViewPhoto: (submission: SpiffSubmission, attachment?: Attachment) => void;
@@ -45,6 +54,9 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
   onOpenDecisionModal,
   onMarkPaid,
   onCorrect,
+  canRepairMissingBranch,
+  repairBranchOptions,
+  onRepairMissingBranch,
   canReopenDenied,
   onReopenDenied,
   onViewPhoto,
@@ -62,6 +74,9 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
   const [editAmountDollars, setEditAmountDollars] = useState('');
   const [editNotes, setEditNotes] = useState('');
   const [editExplanation, setEditExplanation] = useState('');
+  const [repairBranchId, setRepairBranchId] = useState('');
+  const [repairExplanation, setRepairExplanation] = useState('');
+  const [isConfirmingBranchRepair, setIsConfirmingBranchRepair] = useState(false);
   const [isReopeningDenied, setIsReopeningDenied] = useState(false);
   const [reopenExplanation, setReopenExplanation] = useState('');
 
@@ -73,6 +88,15 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
 
   if (!isOpen || !submission) return null;
   const attachments = getSubmissionPhotos(submission);
+  const canRepairThisSubmission =
+    canRepairMissingBranch &&
+    submission.id === MISSING_BRANCH_REPAIR_SUBMISSION_ID &&
+    submission.status === 'Paid' &&
+    submission.branchId === null &&
+    submission.snapshotBranchName === null;
+  const selectedRepairBranch = repairBranchOptions.find(
+    (branch) => branch.id === repairBranchId
+  );
 
   const startEditing = () => {
     setEditLiftName(submission.liftName);
@@ -194,6 +218,43 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
     }
   };
 
+  const handleReviewBranchRepair = (e: React.FormEvent) => {
+    e.preventDefault();
+    setActionError(null);
+    if (!selectedRepairBranch) {
+      setActionError('Select the active branch assigned to Jeff Haworth.');
+      return;
+    }
+    if (!repairExplanation.trim()) {
+      setActionError('A detailed explanation is required for this correction.');
+      return;
+    }
+    setIsConfirmingBranchRepair(true);
+  };
+
+  const handleConfirmBranchRepair = async () => {
+    if (!selectedRepairBranch) {
+      setActionError('Select the active branch assigned to Jeff Haworth.');
+      return;
+    }
+    setActionError(null);
+    setIsProcessing(true);
+    try {
+      await onRepairMissingBranch(
+        submission.id,
+        selectedRepairBranch.id,
+        repairExplanation.trim()
+      );
+      setIsConfirmingBranchRepair(false);
+      setRepairExplanation('');
+      setRepairBranchId('');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to repair the missing branch.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'Pending':
@@ -263,6 +324,92 @@ export const AdminRequestDetailModal: React.FC<AdminRequestDetailModalProps> = (
               <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
               <span>{actionError}</span>
             </div>
+          )}
+
+          {canRepairThisSubmission && (
+            <section className="p-4 bg-amber-950/30 border border-amber-700/60 rounded-lg space-y-3">
+              <div>
+                <h4 className="text-sm font-bold text-amber-300">Repair Missing Branch</h4>
+                <p className="mt-1 text-xs text-gray-300">
+                  This one-time repair changes only the branch fields and adds an audit entry.
+                  The request status, approval, and payment details will not change.
+                </p>
+              </div>
+              {isConfirmingBranchRepair ? (
+                <div className="space-y-3" role="alert">
+                  <p className="text-sm text-white">
+                    Confirm assigning <strong>{selectedRepairBranch?.name}</strong> to request{' '}
+                    <strong className="font-mono">{submission.id}</strong>.
+                  </p>
+                  <p className="text-xs text-gray-300">{repairExplanation.trim()}</p>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsConfirmingBranchRepair(false)}
+                      disabled={isProcessing}
+                      className="px-3 py-1.5 border border-[#444444] text-xs font-medium rounded text-gray-300"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmBranchRepair}
+                      disabled={isProcessing || !selectedRepairBranch}
+                      className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-xs font-bold rounded text-white disabled:opacity-50"
+                    >
+                      {isProcessing ? 'Saving Correction...' : 'Confirm Branch Correction'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleReviewBranchRepair} className="space-y-3">
+                  <label className="block text-xs font-semibold text-gray-200" htmlFor="repair-branch">
+                    Jeff Haworth’s active assigned branch
+                  </label>
+                  <select
+                    id="repair-branch"
+                    value={repairBranchId}
+                    onChange={(event) => setRepairBranchId(event.target.value)}
+                    required
+                    disabled={isProcessing || repairBranchOptions.length === 0}
+                    className="w-full bg-[#1e1e1e] border border-[#444444] rounded px-3 py-2 text-xs text-white"
+                  >
+                    <option value="">Select branch</option>
+                    {repairBranchOptions.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                  {repairBranchOptions.length === 0 && (
+                    <p className="text-xs text-rose-300">
+                      No active branch currently matches Jeff Haworth’s assigned branch.
+                    </p>
+                  )}
+                  <label className="block text-xs font-semibold text-gray-200" htmlFor="repair-explanation">
+                    Required correction explanation
+                  </label>
+                  <textarea
+                    id="repair-explanation"
+                    value={repairExplanation}
+                    onChange={(event) => setRepairExplanation(event.target.value)}
+                    maxLength={1000}
+                    rows={3}
+                    required
+                    className="w-full bg-[#1e1e1e] border border-[#444444] rounded px-3 py-2 text-xs text-white"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={isProcessing || repairBranchOptions.length === 0}
+                      className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-xs font-bold rounded text-white disabled:opacity-50"
+                    >
+                      Review Correction
+                    </button>
+                  </div>
+                </form>
+              )}
+            </section>
           )}
 
           {isReopeningDenied && submission.status === 'Rejected' && (

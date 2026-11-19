@@ -7,7 +7,11 @@ process.env.NODE_ENV = 'test';
 process.env.AUTH_SECRET = 'unit-test-only-general-manager-secret';
 process.env.DATABASE_URL = '';
 
-const { Repository, memoryStore } = await import('../src/lib/repository.js');
+const {
+  MISSING_BRANCH_REPAIR_SUBMISSION_ID,
+  Repository,
+  memoryStore,
+} = await import('../src/lib/repository.js');
 const { hashPassword } = await import('../src/lib/auth.js');
 const { createEmailDecisionToken } = await import('../src/lib/emailDecisionTokens.js');
 const { createCsrfToken, createSessionToken } = await import('../src/lib/sessionAuth.js');
@@ -36,6 +40,9 @@ const OUTSIDE_ID = 'SPF-GM-OUTSIDE';
 const OUTSIDE_APPROVED_ID = 'SPF-GM-OUTSIDE-APPROVED';
 const REJECTED_ID = 'SPF-GM-REJECTED';
 const PAID_ID = 'SPF-GM-PAID';
+const REPAIR_REP_ID = 'rep_missing_branch_repair_test';
+const REPAIR_APPROVER_ID = 'approver_missing_branch_repair_test';
+const REPAIR_APPROVER_EMAIL = 'approver.branchrepair@example.test';
 const ADMIN_APPROVED_ID = 'SPF-ADMIN-PAY-APPROVED';
 const APPROVER_APPROVED_ID = 'SPF-APPROVER-PAY-APPROVED';
 const PAYMENT_PERMISSION_ACCOUNT_IDS = [
@@ -123,6 +130,9 @@ function setupFixtures() {
     (user) => !PAYMENT_PERMISSION_ACCOUNT_IDS.includes(user.id)
   );
   memoryStore.adminUsers = memoryStore.adminUsers.filter((user) => user.id !== ADMIN_ID);
+  memoryStore.adminUsers = memoryStore.adminUsers.filter(
+    (user) => user.id !== REPAIR_APPROVER_ID
+  );
   memoryStore.adminUsers.push({
     id: 'admin_gm_access_test',
     email: GM_EMAIL,
@@ -161,6 +171,19 @@ function setupFixtures() {
     createdAt: now,
     updatedAt: now,
   });
+  memoryStore.adminUsers.push({
+    id: REPAIR_APPROVER_ID,
+    email: REPAIR_APPROVER_EMAIL,
+    name: 'Branch Repair Approver',
+    role: 'Approving Manager',
+    passwordHash: null,
+    isAuthorized: true,
+    mustChangePassword: false,
+    lastLoginAt: null,
+    passwordChangedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
   memoryStore.submissions = memoryStore.submissions.filter(
     (submission) =>
       ![PENDING_ID, APPROVED_ID, OUTSIDE_ID, OUTSIDE_APPROVED_ID, REJECTED_ID, PAID_ID].includes(
@@ -175,7 +198,15 @@ function setupFixtures() {
   );
   memoryStore.auditEvents = memoryStore.auditEvents.filter(
     (event) =>
-      ![PENDING_ID, APPROVED_ID, OUTSIDE_ID, OUTSIDE_APPROVED_ID, REJECTED_ID, PAID_ID].includes(
+      ![
+        PENDING_ID,
+        APPROVED_ID,
+        OUTSIDE_ID,
+        OUTSIDE_APPROVED_ID,
+        REJECTED_ID,
+        PAID_ID,
+        MISSING_BRANCH_REPAIR_SUBMISSION_ID,
+      ].includes(
         event.submissionId
       ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(event.submissionId) &&
       !event.submissionId.startsWith(LOCATION_FIXTURE_PREFIX)
@@ -190,12 +221,24 @@ function cleanupFixtures() {
   memoryStore.adminUsers = memoryStore.adminUsers.filter((user) => user.id !== 'admin_gm_access_test');
   memoryStore.adminUsers = memoryStore.adminUsers.filter((user) => user.id !== ADMIN_ID);
   memoryStore.adminUsers = memoryStore.adminUsers.filter(
+    (user) => user.id !== REPAIR_APPROVER_ID
+  );
+  memoryStore.adminUsers = memoryStore.adminUsers.filter(
     (user) => !PAYMENT_PERMISSION_ACCOUNT_IDS.includes(user.id)
   );
   memoryStore.reps = memoryStore.reps.filter((rep) => rep.id !== 'rep_gm_only_assignment_test');
+  memoryStore.reps = memoryStore.reps.filter((rep) => rep.id !== REPAIR_REP_ID);
   memoryStore.submissions = memoryStore.submissions.filter(
     (submission) =>
-      ![PENDING_ID, APPROVED_ID, OUTSIDE_ID, OUTSIDE_APPROVED_ID, REJECTED_ID, PAID_ID].includes(
+      ![
+        PENDING_ID,
+        APPROVED_ID,
+        OUTSIDE_ID,
+        OUTSIDE_APPROVED_ID,
+        REJECTED_ID,
+        PAID_ID,
+        MISSING_BRANCH_REPAIR_SUBMISSION_ID,
+      ].includes(
         submission.id
       ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(submission.id) &&
       !submission.id.startsWith('SPF-GM-PAGE-') &&
@@ -203,7 +246,15 @@ function cleanupFixtures() {
   );
   memoryStore.auditEvents = memoryStore.auditEvents.filter(
     (event) =>
-      ![PENDING_ID, APPROVED_ID, OUTSIDE_ID, OUTSIDE_APPROVED_ID, REJECTED_ID, PAID_ID].includes(
+      ![
+        PENDING_ID,
+        APPROVED_ID,
+        OUTSIDE_ID,
+        OUTSIDE_APPROVED_ID,
+        REJECTED_ID,
+        PAID_ID,
+        MISSING_BRANCH_REPAIR_SUBMISSION_ID,
+      ].includes(
         event.submissionId
       ) && ![ADMIN_APPROVED_ID, APPROVER_APPROVED_ID].includes(event.submissionId) &&
       !event.submissionId.startsWith('SPF-GM-PAGE-') &&
@@ -248,6 +299,247 @@ after(async () => {
 });
 
 describe('General Manager access', () => {
+  it('repairs only the designated branchless request with an audited, status-preserving correction visible to its GM', async () => {
+    const now = new Date().toISOString();
+    memoryStore.reps.push({
+      id: REPAIR_REP_ID,
+      name: 'Jeff Haworth',
+      email: 'jeff.haworth@example.test',
+      branch: 'GM Assigned Branch',
+      isActive: true,
+      displayOrder: 1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const priorEvents = [
+      {
+        id: 'aud_missing_branch_approved',
+        submissionId: MISSING_BRANCH_REPAIR_SUBMISSION_ID,
+        action: 'approved',
+        performedBy: 'approver@example.test',
+        fieldChanged: 'status',
+        oldValue: 'Pending',
+        newValue: 'Approved',
+        explanation: 'Original approval',
+        timestamp: '2026-10-19T12:00:00.000Z',
+      },
+      {
+        id: 'aud_missing_branch_paid',
+        submissionId: MISSING_BRANCH_REPAIR_SUBMISSION_ID,
+        action: 'marked_paid',
+        performedBy: ADMIN_EMAIL,
+        fieldChanged: 'status',
+        oldValue: 'Approved',
+        newValue: 'Paid',
+        explanation: 'Original payment',
+        timestamp: '2026-10-20T12:00:00.000Z',
+      },
+    ];
+    const repairSubmission = {
+      ...fixtureSubmission(MISSING_BRANCH_REPAIR_SUBMISSION_ID, OWN_BRANCH_ID, 'Paid'),
+      repId: REPAIR_REP_ID,
+      snapshotRepName: 'Jeff Haworth',
+      branchId: null,
+      snapshotBranchName: null,
+    };
+    memoryStore.submissions.push(repairSubmission);
+    memoryStore.auditEvents.push(...priorEvents);
+
+    const gmSession = await login();
+    const gmRepairResponse = await fetch(
+      `${baseUrl}/api/admin/submissions/${MISSING_BRANCH_REPAIR_SUBMISSION_ID}/repair-missing-branch`,
+      {
+        method: 'POST',
+        headers: {
+          cookie: gmSession.cookie,
+          'x-csrf-token': gmSession.csrfToken,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          branchId: OWN_BRANCH_ID,
+          explanation: 'Attempt by General Manager',
+        }),
+      }
+    );
+    assert.equal(gmRepairResponse.status, 403);
+
+    const approverRepairResponse = await fetch(
+      `${baseUrl}/api/admin/submissions/${MISSING_BRANCH_REPAIR_SUBMISSION_ID}/repair-missing-branch`,
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${createSessionToken(
+            REPAIR_APPROVER_EMAIL,
+            'Branch Repair Approver',
+            'Approving Manager'
+          )}`,
+          'x-csrf-token': createCsrfToken(REPAIR_APPROVER_EMAIL),
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          branchId: OWN_BRANCH_ID,
+          explanation: 'Attempt by Approving Manager',
+        }),
+      }
+    );
+    assert.equal(approverRepairResponse.status, 403);
+
+    const adminHeaders = {
+      authorization: `Bearer ${createSessionToken(
+        ADMIN_EMAIL,
+        'Location Test Administrator',
+        'Administrator'
+      )}`,
+      'x-csrf-token': createCsrfToken(ADMIN_EMAIL),
+      'content-type': 'application/json',
+    };
+    const mismatchResponse = await fetch(
+      `${baseUrl}/api/admin/submissions/${MISSING_BRANCH_REPAIR_SUBMISSION_ID}/repair-missing-branch`,
+      {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({
+          branchId: OUTSIDE_BRANCH_ID,
+          explanation: 'Attempt with an unassigned branch',
+        }),
+      }
+    );
+    assert.equal(mismatchResponse.status, 400);
+
+    const missingExplanationResponse = await fetch(
+      `${baseUrl}/api/admin/submissions/${MISSING_BRANCH_REPAIR_SUBMISSION_ID}/repair-missing-branch`,
+      {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ branchId: OWN_BRANCH_ID }),
+      }
+    );
+    assert.equal(missingExplanationResponse.status, 400);
+
+    const repairSubmissionIndex = memoryStore.submissions.indexOf(repairSubmission);
+    memoryStore.submissions[repairSubmissionIndex] = {
+      ...repairSubmission,
+      snapshotBranchName: 'GM Assigned Branch',
+    };
+    const partiallyBranchedResponse = await fetch(
+      `${baseUrl}/api/admin/submissions/${MISSING_BRANCH_REPAIR_SUBMISSION_ID}/repair-missing-branch`,
+      {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({
+          branchId: OWN_BRANCH_ID,
+          explanation: 'Attempt while one branch field is already populated',
+        }),
+      }
+    );
+    assert.equal(partiallyBranchedResponse.status, 400);
+    memoryStore.submissions[repairSubmissionIndex] = repairSubmission;
+
+    const repairResponse = await fetch(
+      `${baseUrl}/api/admin/submissions/${MISSING_BRANCH_REPAIR_SUBMISSION_ID}/repair-missing-branch`,
+      {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({
+          branchId: OWN_BRANCH_ID,
+          explanation: 'Verified the original branch from the sales records.',
+        }),
+      }
+    );
+    const repairBody = await repairResponse.json();
+    assert.equal(repairResponse.status, 200, JSON.stringify(repairBody));
+    assert.equal(repairBody.submission.branchId, OWN_BRANCH_ID);
+    assert.equal(repairBody.submission.snapshotBranchName, 'GM Assigned Branch');
+    assert.equal(repairBody.submission.status, 'Paid');
+
+    const storedSubmission = memoryStore.submissions.find(
+      (submission) => submission.id === MISSING_BRANCH_REPAIR_SUBMISSION_ID
+    );
+    assert.ok(storedSubmission);
+    assert.equal(storedSubmission.status, 'Paid');
+    assert.equal(storedSubmission.approvedAt, repairSubmission.approvedAt);
+    assert.equal(storedSubmission.approvedBy, repairSubmission.approvedBy);
+    assert.equal(storedSubmission.paidAt, repairSubmission.paidAt);
+    assert.equal(storedSubmission.paidBy, repairSubmission.paidBy);
+
+    const storedEvents = memoryStore.auditEvents.filter(
+      (event) => event.submissionId === MISSING_BRANCH_REPAIR_SUBMISSION_ID
+    );
+    for (const priorEvent of priorEvents) {
+      assert.deepEqual(storedEvents.find((event) => event.id === priorEvent.id), priorEvent);
+    }
+    const repairEvent = storedEvents.find(
+      (event) => event.fieldChanged === 'branch_id,snapshot_branch_name'
+    );
+    assert.ok(repairEvent);
+    assert.equal(repairEvent.action, 'correction');
+    assert.equal(repairEvent.performedBy, ADMIN_EMAIL);
+    assert.equal(
+      repairEvent.oldValue,
+      JSON.stringify({ branch_id: null, snapshot_branch_name: null })
+    );
+    assert.equal(
+      repairEvent.newValue,
+      JSON.stringify({
+        branch_id: OWN_BRANCH_ID,
+        snapshot_branch_name: 'GM Assigned Branch',
+      })
+    );
+    assert.equal(repairEvent.explanation, 'Verified the original branch from the sales records.');
+
+    const secondRepairResponse = await fetch(
+      `${baseUrl}/api/admin/submissions/${MISSING_BRANCH_REPAIR_SUBMISSION_ID}/repair-missing-branch`,
+      {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({
+          branchId: OWN_BRANCH_ID,
+          explanation: 'Attempt to repeat the repair',
+        }),
+      }
+    );
+    assert.equal(secondRepairResponse.status, 400);
+
+    const otherSubmissionResponse = await fetch(
+      `${baseUrl}/api/admin/submissions/${PENDING_ID}/repair-missing-branch`,
+      {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({
+          branchId: OWN_BRANCH_ID,
+          explanation: 'Attempt to repair another request',
+        }),
+      }
+    );
+    assert.equal(otherSubmissionResponse.status, 404);
+    assert.equal(
+      memoryStore.auditEvents.filter(
+        (event) =>
+          event.submissionId === MISSING_BRANCH_REPAIR_SUBMISSION_ID &&
+          event.fieldChanged === 'branch_id,snapshot_branch_name'
+      ).length,
+      1
+    );
+
+    const gmLedgerResponse = await fetch(
+      `${baseUrl}/api/admin/submissions?search=${encodeURIComponent(
+        MISSING_BRANCH_REPAIR_SUBMISSION_ID
+      )}`,
+      { headers: { cookie: gmSession.cookie } }
+    );
+    const gmLedgerBody = await gmLedgerResponse.json();
+    assert.equal(gmLedgerResponse.status, 200);
+    assert.ok(
+      gmLedgerBody.submissions.some(
+        (submission: { id: string; branchId: string; status: string }) =>
+          submission.id === MISSING_BRANCH_REPAIR_SUBMISSION_ID &&
+          submission.branchId === OWN_BRANCH_ID &&
+          submission.status === 'Paid'
+      )
+    );
+  });
+
   it('allows active GM accounts to sign in and requires direct branch assignment', async () => {
     const session = await login();
     const sessionResponse = await fetch(`${baseUrl}/api/admin/session`, {
@@ -302,6 +594,9 @@ describe('General Manager access', () => {
         onOpenDecisionModal: () => undefined,
         onMarkPaid: async () => undefined,
         onCorrect: async () => undefined,
+        canRepairMissingBranch: false,
+        repairBranchOptions: [],
+        onRepairMissingBranch: async () => undefined,
         canReopenDenied: false,
         onReopenDenied: async () => undefined,
         onViewPhoto: () => undefined,
@@ -328,6 +623,9 @@ describe('General Manager access', () => {
         onOpenDecisionModal: () => undefined,
         onMarkPaid: async () => undefined,
         onCorrect: async () => undefined,
+        canRepairMissingBranch: false,
+        repairBranchOptions: [],
+        onRepairMissingBranch: async () => undefined,
         canReopenDenied: false,
         onReopenDenied: async () => undefined,
         onViewPhoto: () => undefined,
@@ -428,6 +726,9 @@ describe('General Manager access', () => {
           onOpenDecisionModal: () => undefined,
           onMarkPaid: async () => undefined,
           onCorrect: async () => undefined,
+          canRepairMissingBranch: false,
+          repairBranchOptions: [],
+          onRepairMissingBranch: async () => undefined,
           canReopenDenied: false,
           onReopenDenied: async () => undefined,
           onViewPhoto: () => undefined,

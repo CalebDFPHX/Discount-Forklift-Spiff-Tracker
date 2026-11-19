@@ -353,7 +353,9 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser, adminRo
               <span className="text-gray-500">•</span>
               <span className={`w-2 h-2 rounded-full ${statusInfo?.isEmailConfigured ? 'bg-[#95EA00]' : 'bg-[#A559BD]'}`} />
               <span>
-                {statusInfo?.emailProvider === 'gmail'
+                {statusInfo?.emailProvider === 'microsoft_graph'
+                  ? 'Microsoft Graph'
+                  : statusInfo?.emailProvider === 'gmail'
                   ? 'Gmail'
                   : statusInfo?.emailProvider === 'outlook'
                     ? 'Outlook'
@@ -401,12 +403,21 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser, adminRo
                   <span>Email Delivery</span>
                 </div>
                 <p className="text-xs text-gray-300 mb-2">
-                  {statusInfo?.emailProvider === 'gmail'
+                  {statusInfo?.emailProvider === 'microsoft_graph'
+                    ? statusInfo?.isEmailConfigured
+                      ? 'Microsoft Graph is active for app notifications from admin@discountforkliftphoenix.com.'
+                      : statusInfo?.emailConfigurationError ||
+                        'Microsoft Graph setup is incomplete. Check the server environment variables.'
+                    : statusInfo?.emailProvider === 'gmail'
                     ? 'Gmail SMTP is active for app notifications.'
                     : statusInfo?.emailProvider === 'outlook'
                       ? 'Outlook SMTP is active for app notifications.'
                       : statusInfo?.emailProvider === 'resend'
                         ? 'Resend is active for app notifications.'
+                        : statusInfo?.hasMicrosoftGraphSettings ||
+                            statusInfo?.emailConfigurationError
+                          ? statusInfo?.emailConfigurationError ||
+                            'Microsoft Graph setup is incomplete. Check the server environment variables.'
                         : statusInfo?.hasGmailConfiguration
                           ? 'Gmail SMTP setup is incomplete. Configure both Gmail environment variables.'
                           : statusInfo?.hasOutlookConfiguration
@@ -414,7 +425,11 @@ export const AdminSettings: React.FC<AdminSettingsProps> = ({ adminUser, adminRo
                             : 'No email provider configured. Notifications are simulated in preview.'}
                 </p>
                 <div className="text-[11px] font-mono bg-[#1e1e1e] border border-[#444444] p-1.5 rounded text-gray-300 truncate">
-                  {statusInfo?.emailProvider === 'gmail'
+                  {statusInfo?.emailProvider === 'microsoft_graph'
+                    ? statusInfo?.isEmailConfigured
+                      ? 'Microsoft Graph Active'
+                      : 'Microsoft Graph Setup Required'
+                    : statusInfo?.emailProvider === 'gmail'
                     ? 'Gmail SMTP Active'
                     : statusInfo?.emailProvider === 'outlook'
                       ? 'Outlook SMTP Active'

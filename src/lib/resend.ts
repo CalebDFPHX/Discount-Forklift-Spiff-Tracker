@@ -1,6 +1,10 @@
 import { Resend } from 'resend';
 import nodemailer from 'nodemailer';
 import { isBlockedNotificationRecipient } from './recipientPolicy.js';
+import {
+  createMicrosoftGraphEmailProvider,
+  hasMicrosoftGraphConfiguration,
+} from './microsoftGraph.js';
 
 const resendApiKey = process.env.RESEND_API_KEY;
 const fromEmail = process.env.RESEND_FROM_EMAIL || 'notifications@discountforkliftphoenix.com';
@@ -10,23 +14,44 @@ const outlookUser = process.env.OUTLOOK_USER?.trim();
 const outlookPassword = process.env.OUTLOOK_PASSWORD?.replace(/\s/g, '');
 const outlookFromEmail = process.env.OUTLOOK_FROM_EMAIL?.trim() || outlookUser;
 const outlookSmtpHost = process.env.OUTLOOK_SMTP_HOST?.trim() || 'smtp-mail.outlook.com';
+const configuredEmailProvider = process.env.EMAIL_PROVIDER?.trim().toLowerCase();
+const microsoftGraphSelected =
+  configuredEmailProvider === 'microsoft_graph' ||
+  (!configuredEmailProvider && hasMicrosoftGraphConfiguration());
+const invalidEmailProviderSelection =
+  configuredEmailProvider && configuredEmailProvider !== 'microsoft_graph'
+    ? 'EMAIL_PROVIDER must be "microsoft_graph" when set.'
+    : null;
+const microsoftGraph = createMicrosoftGraphEmailProvider();
 export const hasGmailConfiguration = Boolean(gmailUser || gmailAppPassword);
 export const hasOutlookConfiguration = Boolean(outlookUser || outlookPassword);
 
 export const isResendConfigured = Boolean(resendApiKey && resendApiKey.startsWith('re_'));
 export const isGmailConfigured = Boolean(gmailUser && gmailAppPassword);
 export const isOutlookConfigured = Boolean(outlookUser && outlookPassword && outlookFromEmail);
-export const isEmailConfigured =
+export const isMicrosoftGraphConfigured =
+  microsoftGraphSelected && microsoftGraph.isConfigured;
+export const hasMicrosoftGraphSettings = hasMicrosoftGraphConfiguration();
+const isLegacyEmailConfigured =
   isGmailConfigured ||
   (!hasGmailConfiguration && isOutlookConfigured) ||
   (!hasGmailConfiguration && !hasOutlookConfiguration && isResendConfigured);
-export const emailProvider = isGmailConfigured
-  ? 'gmail'
-  : !hasGmailConfiguration && isOutlookConfigured
-    ? 'outlook'
-    : !hasGmailConfiguration && !hasOutlookConfiguration && isResendConfigured
-      ? 'resend'
-      : null;
+export const emailProvider = invalidEmailProviderSelection
+  ? null
+  : microsoftGraphSelected
+    ? 'microsoft_graph'
+    : isGmailConfigured
+      ? 'gmail'
+      : !hasGmailConfiguration && isOutlookConfigured
+        ? 'outlook'
+        : !hasGmailConfiguration && !hasOutlookConfiguration && isResendConfigured
+          ? 'resend'
+          : null;
+export const isEmailConfigured = invalidEmailProviderSelection
+  ? false
+  : microsoftGraphSelected
+    ? isMicrosoftGraphConfigured
+    : isLegacyEmailConfigured;
 
 export const resend = isResendConfigured && resendApiKey ? new Resend(resendApiKey) : null;
 
@@ -92,6 +117,8 @@ export function sanitizeEmailProviderError(error: unknown): string {
     gmailAppPassword,
     outlookPassword,
     resendApiKey,
+    process.env.GRAPH_CLIENT_SECRET,
+    process.env.GRAPH_CERTIFICATE_PRIVATE_KEY,
   ]) {
     if (secret) message = message.split(secret).join('[redacted]');
   }
@@ -112,6 +139,10 @@ export function sanitizeEmailProviderError(error: unknown): string {
 }
 
 function getIncompleteEmailConfigurationError(): string | null {
+  if (invalidEmailProviderSelection) return invalidEmailProviderSelection;
+  if (microsoftGraphSelected && !microsoftGraph.isConfigured) {
+    return microsoftGraph.configurationError || 'Microsoft Graph configuration is invalid.';
+  }
   if (hasGmailConfiguration && !isGmailConfigured) {
     return 'GMAIL_USER and GMAIL_APP_PASSWORD must both be configured.';
   }
@@ -120,6 +151,8 @@ function getIncompleteEmailConfigurationError(): string | null {
   }
   return null;
 }
+
+export const emailConfigurationError = getIncompleteEmailConfigurationError();
 
 async function deliverEmail(params: {
   to: string | string[];
@@ -137,6 +170,10 @@ async function deliverEmail(params: {
 }> {
   const recipients = Array.isArray(params.to) ? params.to : [params.to];
   try {
+    if (microsoftGraphSelected) {
+      return microsoftGraph.sendEmail(params);
+    }
+
     if (isGmailConfigured && gmailUser && gmailAppPassword) {
       const transport = nodemailer.createTransport({
         host: 'smtp.gmail.com',
